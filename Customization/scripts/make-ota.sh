@@ -21,6 +21,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=config.sh
+source "$SCRIPT_DIR/config.sh"
 SRC_DIR="${SRC_DIR:-$REPO/../src}"
 PRODUCT_OUT="$SRC_DIR/out/target/product/pocket_ds"
 OTA_DIR="$REPO/../OTA"
@@ -29,7 +31,7 @@ INCREMENTAL=true
 PROMOTE=true
 # Devices the packages accept. The build is PocketDS, but a recovery reports the board name
 # (kalama) and sideload refuses "package is for product PocketDS but expected kalama".
-ASSERT_DEVICES="${OTA_ASSERT_DEVICES:-PocketDS|kalama}"
+ASSERT_DEVICES="${OTA_ASSERT_DEVICES:-PocketDS|kalama}" # pocketds.conf
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -97,7 +99,7 @@ VERSION="$(tr -d ' \n' < "$REPO/device/ayaneo/pocket_ds/VERSION")"
 VERSION_CODE="$(awk -F. '{printf "%d", $1*10000+$2*100+$3}' <<<"$VERSION")"
 NAME="PocketDS-$VERSION-lineage-24.0-$(date +%Y%m%d)"
 # Where the packages are published (GitHub release v<version>): base of the urls in update.json.
-RELEASE_URL="${POCKETDS_RELEASE_URL:-https://github.com/Nolar-Hack/Ayaneo-PocketDS-Lineage-Releases/releases/download}"
+RELEASE_URL="${POCKETDS_RELEASE_URL:-https://github.com/${RELEASE_REPO:-Nolar-Hack/Ayaneo-PocketDS-Lineage-Releases}/releases/download}"
 
 cd "$SRC_DIR"
 # The signing step of the package runs java (SignApk): the JDK of the Lineage tree.

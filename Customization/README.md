@@ -136,3 +136,15 @@ the packages and the `OTA/update.json` made by `make-ota.sh`. If the installed b
 incremental package that one is downloaded, else the complete one (also when the incremental fails).
 Installation goes through update_engine in the background; the console only restarts on the user's order.
 With SELinux enforcing, update_engine and the app need their own policy rules.
+
+## Settings and releases
+
+`Customization/pocketds.conf` holds the options of the build (`VARIANT`, `JOBS`, memory limits, `KERNELSU`,
+`GAPPS`, `BUMP`...) and where releases go (`RELEASE_REPO`, `UPDATE_URL`, `RELEASE_PRERELEASE`, `RELEASE_NOTES`).
+Order: that file, then `Customization/pocketds.local.conf` (yours, not in git), then the command line.
+`RELEASE_REPO` also sets the update address built into the image (`ro.pocketds.update_url`) and the
+addresses written in `update.json`; to publish somewhere else, change it (or override it in
+`pocketds.local.conf`) before the build.
+
+`scripts/publish-release.sh` publishes the last build as the release `v<version>` of `RELEASE_REPO`
+(complete package, incremental package, `update.json`, notes). It shows what it is about to do and asks first.

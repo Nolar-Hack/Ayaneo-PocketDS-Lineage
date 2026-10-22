@@ -53,6 +53,12 @@ DO_COPY=false
 DO_EXTRACT=false
 DO_BUILD=false
 
+# Settings of Customization/pocketds.conf (and pocketds.local.conf); the command line wins.
+# shellcheck source=config.sh
+source "$SCRIPT_DIR/config.sh"
+SRC_DIR="${SRC_DIR:-$REPO_DIR/../src}"
+[[ "$SRC_DIR" = /* ]] || SRC_DIR="$REPO_DIR/$SRC_DIR"
+
 usage() {
     cat <<EOF
 Usage: $(basename "$0") [PHASES] [OPTIONS]
@@ -267,6 +273,7 @@ run_m() {
             env GOGC=50 GIT_CONFIG_GLOBAL="$GIT_CONFIG_GLOBAL" \
                 $($BRINGUP && echo WITH_ADB_INSECURE=true) \
                 POCKETDS_GAPPS="$GAPPS" \
+                POCKETDS_UPDATE_URL="${UPDATE_URL:-}" \
             bash -c "source build/envsetup.sh >/dev/null && \
                      lunch lineage_pocket_ds-cp2a-$VARIANT >/dev/null && \
                      m -j$JOBS $targets"

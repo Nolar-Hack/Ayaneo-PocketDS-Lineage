@@ -16,3 +16,4 @@
 /Customization/apps/*/build/
 /Customization/apps/*/*.apk
 /swapfile
+/Customization/pocketds.local.conf

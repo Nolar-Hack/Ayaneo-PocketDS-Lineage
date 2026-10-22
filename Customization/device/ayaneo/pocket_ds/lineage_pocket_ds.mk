@@ -53,4 +53,10 @@ PRODUCT_SYSTEM_PROPERTIES += \
     ro.pocketds.version=$(POCKETDS_VERSION) \
     ro.pocketds.version.code=$(POCKETDS_VERSION_CODE)
 
+# Where System update looks for releases (POCKETDS_UPDATE_URL, from pocketds.conf); the app falls
+# back to its own default when it is empty.
+ifneq ($(POCKETDS_UPDATE_URL),)
+PRODUCT_SYSTEM_PROPERTIES += ro.pocketds.update_url=$(POCKETDS_UPDATE_URL)
+endif
+
 PRODUCT_GMS_CLIENTID_BASE := android-ayaneo

@@ -117,7 +117,10 @@ final class Updates {
         final String chosen = prefs(context).getString(KEY_URL, "");
         if (!chosen.isEmpty()) return chosen;
         final String custom = SystemProperties.get("persist.pocketds.update_url", "");
-        return custom.isEmpty() ? DEFAULT_URL : custom;
+        if (!custom.isEmpty()) return custom;
+        // The address of this build (RELEASE_REPO of pocketds.conf), else our own repository.
+        final String built = SystemProperties.get("ro.pocketds.update_url", "");
+        return built.isEmpty() ? DEFAULT_URL : built;
     }
 
     static boolean customUrl(Context context) {
