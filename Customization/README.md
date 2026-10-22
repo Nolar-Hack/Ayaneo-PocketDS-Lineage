@@ -118,3 +118,11 @@ Ayaneo's files are not redistributable and come from **your own console**:
 The proprietary blobs are not in the repository: put them in `Customization/vendor/ayaneo/pocket_ds/`, or let
 `./build.sh --extract --stock-backup <backup>` extract them from a backup of the console
 (`scripts/backup-stock.sh`). Once they are in `src/`, `--extract` is skipped (`--force-extract` to redo it).
+
+## Versions
+
+The image has a CalVer version `YEAR.MONTH.BUILD` (file `device/ayaneo/pocket_ds/VERSION`, e.g. `2026.10.3`:
+the third build of October 2026). `scripts/release.sh next` bumps it, run it before `./build.sh`.
+It ends up in `ro.pocketds.version` and `ro.pocketds.version.code` (YEAR*10000 + MONTH*100 + BUILD),
+in the package names (`PocketDS-<version>-lineage-24.0-<date>-full.zip`) and in `OTA/update.json`
+(full package, and the incremental one with the build id it applies to), made by `make-ota.sh`.

@@ -44,4 +44,13 @@ PRODUCT_SYSTEM_PROPERTIES += \
 PRODUCT_PRODUCT_PROPERTIES += \
     ro.build.display.id=$(POCKETDS_BUILD_DISPLAY_ID)
 
+# Release version of the image (CalVer YEAR.MONTH.BUILD, file VERSION; scripts/release.sh bumps it).
+# versionCode = YEAR*10000 + MONTH*100 + BUILD (2026.10.3 -> 20261003): a plain integer that orders
+# the releases, used by PocketDS Extra to tell whether an update is newer.
+POCKETDS_VERSION := $(shell cat device/ayaneo/pocket_ds/VERSION 2>/dev/null | tr -d ' \n')
+POCKETDS_VERSION_CODE := $(shell echo '$(POCKETDS_VERSION)' | awk -F. '{printf "%d", $$1*10000+$$2*100+$$3}')
+PRODUCT_SYSTEM_PROPERTIES += \
+    ro.pocketds.version=$(POCKETDS_VERSION) \
+    ro.pocketds.version.code=$(POCKETDS_VERSION_CODE)
+
 PRODUCT_GMS_CLIENTID_BASE := android-ayaneo

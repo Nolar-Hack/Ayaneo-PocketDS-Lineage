@@ -93,7 +93,11 @@ echo "== target files"
 prepare "$CURRENT" "$WORK/new.zip"
 KEY="$(unzip -p "$WORK/new.zip" META/misc_info.txt | sed -n 's/^default_system_dev_certificate=//p')"
 [[ -n "$KEY" ]] || KEY=build/make/target/product/security/testkey
-NAME="lineage-24.0-$(date +%Y%m%d)-UNOFFICIAL-pocket_ds"
+VERSION="$(tr -d ' \n' < "$REPO/device/ayaneo/pocket_ds/VERSION")"
+VERSION_CODE="$(awk -F. '{printf "%d", $1*10000+$2*100+$3}' <<<"$VERSION")"
+NAME="PocketDS-$VERSION-lineage-24.0-$(date +%Y%m%d)"
+# Where the packages are published (GitHub release v<version>): base of the urls in update.json.
+RELEASE_URL="${POCKETDS_RELEASE_URL:-https://github.com/Nolar-Hack/Ayaneo-PocketDS-Lineage-Releases/releases/download}"
 
 cd "$SRC_DIR"
 # The signing step of the package runs java (SignApk): the JDK of the Lineage tree.
@@ -114,6 +118,32 @@ if [[ "$INCREMENTAL" == true && -d "$COMPARE/target_files" && -f "$COMPARE/init_
 elif [[ "$INCREMENTAL" == true ]]; then
     echo "== no incremental package: Compare is empty ($COMPARE)"
 fi
+
+# --- update.json: what PocketDS Extra reads to offer the update (publish it next to the release).
+# "incremental" only applies to a device whose ro.build.version.incremental equals its "from".
+meta() { unzip -p "$1" META-INF/com/android/metadata | sed -n "s/^$2=//p"; }
+FULL="$OTA_DIR/Full/$NAME-full.zip"
+INC="$OTA_DIR/Incremental/$NAME-incremental.zip"
+export NAME VERSION VERSION_CODE RELEASE_URL FULL INC
+export BUILD_ID="$(meta "$FULL" post-build-incremental)"
+[[ -f "$INC" ]] && export FROM_ID="$(meta "$INC" pre-build-incremental)" || export FROM_ID=""
+python3 - <<'PY' > "$OTA_DIR/update.json"
+import json, os, hashlib
+def entry(path):
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(1 << 24), b''): h.update(chunk)
+    return {"file": os.path.basename(path),
+            "url": "%s/v%s/%s" % (os.environ["RELEASE_URL"], os.environ["VERSION"], os.path.basename(path)),
+            "size": os.path.getsize(path), "sha256": h.hexdigest()}
+e = os.environ
+d = {"version": e["VERSION"], "versionCode": int(e["VERSION_CODE"]), "buildId": e["BUILD_ID"],
+     "date": __import__("datetime").date.today().isoformat(), "full": entry(e["FULL"]), "incremental": None}
+if e["FROM_ID"] and os.path.isfile(e["INC"]):
+    d["incremental"] = dict(entry(e["INC"]), **{"from": e["FROM_ID"]})
+print(json.dumps(d, indent=2))
+PY
+echo "update.json: $OTA_DIR/update.json (version $VERSION, code $VERSION_CODE)"
 
 # --- Compare: this build becomes the base of the next one (hard links: no extra space)
 if [[ "$PROMOTE" == true ]]; then
