@@ -45,6 +45,7 @@ BRINGUP=false
 KERNELSU=true
 MAKE_OTA=true
 CHECK=true
+BUMP=true
 FORCE_EXTRACT=false
 # GApps in the image: mindthegapps (default) or none (room kept in product to flash NikGApps...)
 GAPPS=mindthegapps
@@ -74,6 +75,8 @@ Options:
   --mem-max SIZE        kill the build above SIZE (default: $MEM_MAX)
   --no-kernelsu         do not patch KernelSU Next into init_boot (root is on by default)
   --no-ota              do not make the full and incremental update packages (OTA/) at the end
+  --no-bump             keep the version of device/ayaneo/pocket_ds/VERSION (--all raises it by one:
+                        YEAR.MONTH.BUILD, see scripts/release.sh)
   --skip-checks         do not check the prerequisites first (scripts/check-prereqs.sh)
   --force-extract       extract the blobs from --stock-backup even if they are already in place
   --gapps G             mindthegapps (default): MindTheGapps in the image, 1 GiB kept free in
@@ -100,6 +103,7 @@ while [[ $# -gt 0 ]]; do
         --bringup)      BRINGUP=true ;;
         --no-kernelsu)  KERNELSU=false ;;
         --no-ota)       MAKE_OTA=false ;;
+        --no-bump)      BUMP=false ;;
         --skip-checks)  CHECK=false ;;
         --force-extract) FORCE_EXTRACT=true ;;
         --gapps)        GAPPS="$2"; shift ;;
@@ -317,6 +321,13 @@ phase_build() {
 # Prerequisites of this computer (tools, memory, disk) before anything long starts.
 if $CHECK && { $DO_SYNC || $DO_COPY || $DO_BUILD; }; then
     "$SCRIPT_DIR/check-prereqs.sh" || die "Prerequisites missing (see above). Fix them, or use --skip-checks"
+fi
+
+# A new image gets a new version, before --copy puts the VERSION file into the tree.
+if $BUMP && $DO_COPY && $DO_BUILD; then
+    step "Version of this build"
+    "$SCRIPT_DIR/release.sh" next
+    warn "VERSION changed: commit it (git add -A && git commit) so that the release matches the code"
 fi
 
 $DO_SYNC    && phase_sync
