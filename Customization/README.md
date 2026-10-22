@@ -131,7 +131,7 @@ in the package names (`PocketDS-<version>-lineage-24.0-<date>-full.zip`) and in 
 
 PocketDS Extra → System update (and the "Update" button of the launcher) reads `update.json` from
 `https://github.com/Nolar-Hack/Ayaneo-PocketDS-Lineage-Releases/releases/latest/download/update.json`
-(`persist.pocketds.update_url` overrides it). Each GitHub release `v<version>` must carry, as assets,
+(changeable in the app, System update → Update source: `owner/repo` or an https address; `persist.pocketds.update_url` is the system-wide default). Each GitHub release `v<version>` must carry, as assets,
 the packages and the `OTA/update.json` made by `make-ota.sh`. If the installed build is the `from` of the
 incremental package that one is downloaded, else the complete one (also when the incremental fails).
 Installation goes through update_engine in the background; the console only restarts on the user's order.

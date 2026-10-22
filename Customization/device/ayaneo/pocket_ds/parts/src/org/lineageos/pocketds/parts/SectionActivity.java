@@ -446,7 +446,8 @@ public class SectionActivity extends Activity {
             public void run() {
                 final String signature = Updates.sState + "/" + Updates.sPercent + "/"
                         + Updates.sMessage + "/" + Updates.restartPending(SectionActivity.this)
-                        + "/" + Updates.lastChecked(SectionActivity.this);
+                        + "/" + Updates.lastChecked(SectionActivity.this) + "/"
+                        + Updates.url(SectionActivity.this);
                 if (!signature.equals(shown[0])) {
                     shown[0] = signature;
                     body.removeAllViews();
@@ -518,9 +519,40 @@ public class SectionActivity extends Activity {
         ui.switchRow(auto, "⬇️", Ui.GREEN, "Install by itself",
                 "Download and install in the background on Wi-Fi, charging or above 50 %",
                 Updates.PREF_AUTO_INSTALL, false);
+        ui.section(body, "Update source");
+        final LinearLayout source = ui.card(body);
+        ui.actionRow(source, "🔗", Ui.PURPLE, Updates.customUrl(this) ? "Custom source"
+                : "Default source", Updates.url(this), this::editUpdateSource);
+        ui.note(body, "For your own build: give the GitHub repository (owner/repo) that publishes "
+                + "your releases, or the https address of its update.json.");
         ui.note(body, "The console never restarts on its own: a notification and the button "
                 + "above wait for you. An update that cannot be installed leaves the current "
                 + "version untouched.");
+    }
+
+    private void editUpdateSource() {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setSingleLine(true);
+        input.setHint("owner/repo or https://…/update.json");
+        input.setText(Updates.customUrl(this) ? Updates.url(this) : "");
+        final android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                .setTitle("Update source").setView(input)
+                .setPositiveButton("Save", null)
+                .setNeutralButton("Default", (d, w) -> {
+                    Updates.setUrl(this, "");
+                    Toast.makeText(this, "Default source restored", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null).create();
+        dialog.setOnShowListener(d -> dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    if (Updates.setUrl(this, input.getText().toString())) {
+                        dialog.dismiss();
+                    } else {
+                        Toast.makeText(this, "Use owner/repo or an https:// address",
+                                Toast.LENGTH_LONG).show();
+                    }
+                }));
+        dialog.show();
     }
 
     private void tools(Ui ui, LinearLayout page) {

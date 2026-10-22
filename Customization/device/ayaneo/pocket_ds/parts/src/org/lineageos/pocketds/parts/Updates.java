@@ -48,6 +48,7 @@ final class Updates {
     static final String PREF_AUTO_CHECK = "update_auto_check";
     static final String PREF_AUTO_INSTALL = "update_auto_install";
     private static final String PREFS = "updates";
+    private static final String KEY_URL = "url";
     private static final String KEY_JSON = "json";
     private static final String KEY_CHECKED = "checked";
     private static final String KEY_READY_CODE = "ready_code";
@@ -111,9 +112,35 @@ final class Updates {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    static String url() {
+    /** The update.json address: the one set in the app, else the system property, else ours. */
+    static String url(Context context) {
+        final String chosen = prefs(context).getString(KEY_URL, "");
+        if (!chosen.isEmpty()) return chosen;
         final String custom = SystemProperties.get("persist.pocketds.update_url", "");
         return custom.isEmpty() ? DEFAULT_URL : custom;
+    }
+
+    static boolean customUrl(Context context) {
+        return !prefs(context).getString(KEY_URL, "").isEmpty();
+    }
+
+    /**
+     * Sets the update source. Accepts "owner/repo" (the latest GitHub release of that repository)
+     * or a full https address of an update.json; empty goes back to the default.
+     *
+     * @return false when the text is neither
+     */
+    static boolean setUrl(Context context, String text) {
+        String value = text == null ? "" : text.trim();
+        if (value.matches("[\\w.-]+/[\\w.-]+")) {
+            value = "https://github.com/" + value + "/releases/latest/download/update.json";
+        } else if (!value.isEmpty() && !value.startsWith("https://")) {
+            return false;
+        }
+        // The release found at the old address no longer applies.
+        prefs(context).edit().putString(KEY_URL, value).remove(KEY_JSON).remove(KEY_CHECKED)
+                .apply();
+        return true;
     }
 
     static File dir(Context context) {
@@ -180,7 +207,7 @@ final class Updates {
      * @throws Exception when the page cannot be read
      */
     static Info check(Context context) throws Exception {
-        final HttpURLConnection c = (HttpURLConnection) new URL(url()).openConnection();
+        final HttpURLConnection c = (HttpURLConnection) new URL(url(context)).openConnection();
         c.setConnectTimeout(15000);
         c.setReadTimeout(20000);
         c.setRequestProperty("User-Agent", "PocketDS-Extra/" + version());
