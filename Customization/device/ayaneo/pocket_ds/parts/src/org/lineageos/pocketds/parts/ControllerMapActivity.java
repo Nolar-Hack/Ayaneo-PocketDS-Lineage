@@ -20,12 +20,13 @@ import android.widget.Toast;
  * sends. For one app (its controller setup) or, with no package, for every app.
  */
 public class ControllerMapActivity extends Activity {
-    static final String EXTRA_PACKAGE = "package";
+    static final String EXTRA_PROFILE = "profile";
     static final String EXTRA_LABEL = "label";
     private static final int MAX_CHARS = 91; // a system property value
 
     private Ui mUi;
-    private String mPackage;
+    private String mProfileId;
+    private ControllerProfiles.Named mNamed;
     private SharedPreferences mPrefs;
     private SparseIntArray mMap = new SparseIntArray();
     private ConsoleMapView mView;
@@ -35,14 +36,15 @@ public class ControllerMapActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        mPackage = getIntent().getStringExtra(EXTRA_PACKAGE);
+        mProfileId = getIntent().getStringExtra(EXTRA_PROFILE);
+        mNamed = ControllerProfiles.find(PartsPrefs.get(this), mProfileId);
         mPrefs = PartsPrefs.get(this);
         mUi = new Ui(this);
         setTitle("Button remapping");
         final LinearLayout page = mUi.page(this);
         final String label = getIntent().getStringExtra(EXTRA_LABEL);
         mUi.hero(page, "🎮", Ui.PURPLE, "Button remapping",
-                mPackage == null ? "For every app" : "Only in " + label);
+                mNamed == null ? "For every app" : "Profile " + label);
         load();
 
         final LinearLayout card = mUi.card(page);
@@ -65,11 +67,11 @@ public class ControllerMapActivity extends Activity {
 
     private void load() {
         String text;
-        if (mPackage == null) {
+        if (mNamed == null) {
             text = SystemProperties.get(ControllerProfiles.PROP_MAP, "");
         } else {
-            final ControllerProfiles.Profile p = ControllerProfiles.of(mPrefs, mPackage);
-            text = p.map != null ? p.map : SystemProperties.get(ControllerProfiles.PROP_MAP, "");
+            text = mNamed.profile.map != null ? mNamed.profile.map
+                    : SystemProperties.get(ControllerProfiles.PROP_MAP, "");
         }
         mMap = ControllerProfiles.parseMap(text);
     }
@@ -80,12 +82,11 @@ public class ControllerMapActivity extends Activity {
             Toast.makeText(this, "Too many remaps", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (mPackage == null) {
+        if (mNamed == null) {
             SystemProperties.set(ControllerProfiles.PROP_MAP, text);
         } else {
-            final ControllerProfiles.Profile p = ControllerProfiles.of(mPrefs, mPackage);
-            p.map = text;
-            ControllerProfiles.save(mPrefs, mPackage, p);
+            mNamed.profile.map = text;
+            ControllerProfiles.update(mPrefs, mNamed);
         }
         mView.setMap(mMap);
     }
@@ -116,9 +117,10 @@ public class ControllerMapActivity extends Activity {
         if (region == null) {
             box.addView(text("Tap a button on the drawing to change what it sends.", 15,
                     mUi.textDim, false));
-            if (mPackage != null) {
-                box.addView(text("These remaps only apply while this app is in front. "
-                        + "They start from the ones set for every app.", 14, mUi.textDim, false));
+            if (mNamed != null) {
+                box.addView(text("These remaps apply while an app that uses this profile is in "
+                        + "front. They start from the ones set for every app.", 14, mUi.textDim,
+                        false));
                 box.addView(resetButton());
             }
             return;
@@ -171,13 +173,12 @@ public class ControllerMapActivity extends Activity {
 
     private View resetButton() {
         final TextView reset = mUi.pill("Same remaps as everywhere", Ui.ORANGE, false, v -> {
-            final ControllerProfiles.Profile p = ControllerProfiles.of(mPrefs, mPackage);
-            p.map = null;
-            ControllerProfiles.save(mPrefs, mPackage, p);
+            mNamed.profile.map = null;
+            ControllerProfiles.update(mPrefs, mNamed);
             load();
             mView.setMap(mMap);
-            Toast.makeText(this, "This app follows the general remapping", Toast.LENGTH_SHORT)
-                    .show();
+            Toast.makeText(this, "This profile follows the general remapping",
+                    Toast.LENGTH_SHORT).show();
         });
         final LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT,

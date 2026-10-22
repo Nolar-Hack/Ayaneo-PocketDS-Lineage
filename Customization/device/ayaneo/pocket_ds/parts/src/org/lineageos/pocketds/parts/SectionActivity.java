@@ -36,6 +36,7 @@ public class SectionActivity extends Activity {
     static final String SOUND = "sound";
     static final String LAUNCHER = "launcher";
     static final String GAMES = "games";
+    static final String CONTROLLER = "controller";
     static final String UPDATES = "updates";
 
     private static final String[] DELAYS = {"Never", "1 min", "5 min", "15 min", "30 min", "1 h"};
@@ -84,6 +85,9 @@ public class SectionActivity extends Activity {
                 break;
             case GAMES:
                 games(ui, page);
+                break;
+            case CONTROLLER:
+                controllerPage(ui, page);
                 break;
             case UPDATES:
                 updates(ui, page);
@@ -642,13 +646,9 @@ public class SectionActivity extends Activity {
 
     /** A performance profile for each app: it is switched on when the app comes to the front. */
     private void games(Ui ui, LinearLayout page) {
-        ui.hero(page, "🎮", Ui.PURPLE, "Games",
-                "A profile for each app, switched on when it opens");
-        final LinearLayout general = ui.card(page);
-        ui.actionRow(general, "🕹️", Ui.PURPLE, "Button remapping, every app",
-                "A drawing of the console: tap a button, pick what it sends", () ->
-                        startActivity(new Intent(this, ControllerMapActivity.class)));
-        ui.section(page, "Each app");
+        setTitle("Profiles");
+        ui.hero(page, "🎮", Ui.PURPLE, "Profiles",
+                "For each app: a performance profile and a controller profile, switched on when it opens");
         final android.content.SharedPreferences prefs = PartsPrefs.get(this);
         final android.content.pm.PackageManager pm = getPackageManager();
         final java.util.TreeMap<String, String> found = new java.util.TreeMap<>();
@@ -675,26 +675,23 @@ public class SectionActivity extends Activity {
             final String title = label;
             final String key = GameProfiles.KEY_PREFIX + pkg;
             final Ui.Row[] row = new Ui.Row[1];
+            final Runnable refresh = () -> ui.setSummary(row[0], gameText(prefs, key, pkg));
             row[0] = ui.actionRow(card, "🎮", Ui.PURPLE, label, gameText(prefs, key, pkg), () ->
                     new android.app.AlertDialog.Builder(this).setTitle(title)
-                            .setItems(new String[] {"Performance profile", "Controller"},
-                                    (d, which) -> {
-                                        if (which == 0) {
-                                            performanceDialog(prefs, key, title, choices, () ->
-                                                    ui.setSummary(row[0], gameText(prefs, key, pkg)));
-                                        } else {
-                                            controllerDialog(prefs, pkg, title, () ->
-                                                    ui.setSummary(row[0], gameText(prefs, key, pkg)));
-                                        }
-                                    }).show());
+                            .setItems(new String[] {"Performance profile",
+                                "Controller profile"}, (d, which) -> {
+                                if (which == 0) performanceDialog(prefs, key, title, choices, refresh);
+                                else controllerPickDialog(prefs, pkg, title, refresh);
+                            }).show());
         }
         ui.note(page, "When you leave the app, the profile and the controller setup you had "
-                + "come back.");
+                + "come back. Controller profiles are made in Controller.");
     }
 
     private String gameText(android.content.SharedPreferences prefs, String key, String pkg) {
-        final ControllerProfiles.Profile pad = ControllerProfiles.of(prefs, pkg);
-        return profileText(prefs, key) + (pad.empty() ? "" : " · Controller: " + pad.summary());
+        final ControllerProfiles.Named pad = ControllerProfiles.find(prefs,
+                ControllerProfiles.assignedId(prefs, pkg));
+        return profileText(prefs, key) + (pad == null ? "" : " · Controller: " + pad.name);
     }
 
     private void performanceDialog(android.content.SharedPreferences prefs, String key,
@@ -707,12 +704,85 @@ public class SectionActivity extends Activity {
                 }).show();
     }
 
+    /** Which controller profile an app uses: one of the named ones, none, or a new one. */
+    private void controllerPickDialog(android.content.SharedPreferences prefs, String pkg,
+            String title, Runnable changed) {
+        final java.util.List<ControllerProfiles.Named> list = ControllerProfiles.all(prefs);
+        final String[] items = new String[list.size() + 2];
+        items[0] = "None (same as everywhere)";
+        for (int i = 0; i < list.size(); i++) items[i + 1] = list.get(i).name;
+        items[items.length - 1] = "New profile…";
+        new android.app.AlertDialog.Builder(this).setTitle(title + " · controller")
+                .setItems(items, (d, which) -> {
+                    if (which == 0) {
+                        ControllerProfiles.assign(prefs, pkg, null);
+                        changed.run();
+                    } else if (which == items.length - 1) {
+                        nameDialog("New controller profile", "", name -> {
+                            final ControllerProfiles.Named n = ControllerProfiles.create(prefs,
+                                    name);
+                            ControllerProfiles.assign(prefs, pkg, n.id);
+                            changed.run();
+                            controllerDialog(prefs, n, changed);
+                        });
+                    } else {
+                        ControllerProfiles.assign(prefs, pkg, list.get(which - 1).id);
+                        changed.run();
+                    }
+                }).show();
+    }
+
+    private interface NameListener {
+        void onName(String name);
+    }
+
+    private void nameDialog(String title, String current, NameListener listener) {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setSingleLine(true);
+        input.setHint("Name");
+        input.setText(current);
+        input.setSelection(current.length());
+        new android.app.AlertDialog.Builder(this).setTitle(title).setView(input)
+                .setPositiveButton("Save", (d, w) -> listener.onName(input.getText().toString()))
+                .setNegativeButton("Cancel", null).show();
+    }
+
+    /** Controller: the named profiles and the general setup. */
+    private void controllerPage(Ui ui, LinearLayout page) {
+        setTitle("Controller");
+        ui.hero(page, "🕹️", Ui.PURPLE, "Controller",
+                "Named setups for the buttons and sticks, chosen for each app in Profiles");
+        final android.content.SharedPreferences prefs = PartsPrefs.get(this);
+        final LinearLayout general = ui.card(page);
+        ui.actionRow(general, "🌐", Ui.BLUE, "Every app",
+                "What is used when an app has no profile: tap a button on a drawing of the "
+                        + "console", () -> startActivity(new Intent(this,
+                        ControllerMapActivity.class)));
+        ui.section(page, "Profiles");
+        final LinearLayout card = ui.card(page);
+        final java.util.List<ControllerProfiles.Named> list = ControllerProfiles.all(prefs);
+        for (ControllerProfiles.Named n : list) {
+            final int uses = ControllerProfiles.usedBy(prefs, n.id);
+            ui.actionRow(card, "🕹️", Ui.PURPLE, n.name, n.profile.summary()
+                    + (uses == 0 ? "" : " · " + uses + (uses == 1 ? " app" : " apps")),
+                    () -> controllerDialog(prefs, n, this::recreate));
+        }
+        ui.actionRow(card, "➕", Ui.GREEN, "New profile", "Give it a name, then set the buttons",
+                () -> nameDialog("New controller profile", "", name -> {
+                    final ControllerProfiles.Named n = ControllerProfiles.create(prefs, name);
+                    controllerDialog(prefs, n, this::recreate);
+                }));
+        ui.note(page, list.isEmpty() ? "No profile yet. Create one, then pick it for an app "
+                + "in Profiles." : "A profile only changes what you set in it; the rest stays "
+                + "as in Every app.");
+    }
+
     private static final int[] ZONES = {-1, 0, 5, 10, 15, 20, 25};
 
-    /** The controller setup of one app: each line goes to its next value when tapped. */
-    private void controllerDialog(android.content.SharedPreferences prefs, String pkg,
-            String title, Runnable changed) {
-        final ControllerProfiles.Profile p = ControllerProfiles.of(prefs, pkg);
+    /** The setup of a named profile: each line goes to its next value when tapped. */
+    private void controllerDialog(android.content.SharedPreferences prefs,
+            ControllerProfiles.Named n, Runnable changed) {
+        final ControllerProfiles.Profile p = n.profile;
         final String[] items = {
             "Swap A ↔ B: " + choiceText(p.swapAb),
             "Swap X ↔ Y: " + choiceText(p.swapXy),
@@ -720,8 +790,8 @@ public class SectionActivity extends Activity {
                     : p.zone == 0 ? "None" : p.zone + " %"),
             "Button remapping on the drawing: " + (p.map == null ? "Same as everywhere"
                     : p.map.isEmpty() ? "None" : p.map.split(",").length + " remaps"),
-            "Reset: same as everywhere"};
-        new android.app.AlertDialog.Builder(this).setTitle(title + " · controller")
+            "Rename", "Delete this profile"};
+        new android.app.AlertDialog.Builder(this).setTitle(n.name)
                 .setItems(items, (d, which) -> {
                     switch (which) {
                         case 0: p.swapAb = nextChoice(p.swapAb); break;
@@ -733,20 +803,33 @@ public class SectionActivity extends Activity {
                             break;
                         }
                         case 3:
+                            ControllerProfiles.update(prefs, n);
                             startActivity(new Intent(this, ControllerMapActivity.class)
-                                    .putExtra(ControllerMapActivity.EXTRA_PACKAGE, pkg)
-                                    .putExtra(ControllerMapActivity.EXTRA_LABEL, title));
+                                    .putExtra(ControllerMapActivity.EXTRA_PROFILE, n.id)
+                                    .putExtra(ControllerMapActivity.EXTRA_LABEL, n.name));
+                            return;
+                        case 4:
+                            nameDialog("Rename the profile", n.name, name -> {
+                                if (!name.trim().isEmpty()) n.name = name.trim();
+                                ControllerProfiles.update(prefs, n);
+                                changed.run();
+                                controllerDialog(prefs, n, changed);
+                            });
                             return;
                         default:
-                            p.swapAb = -1;
-                            p.swapXy = -1;
-                            p.zone = -1;
-                            p.map = null;
-                            break;
+                            new android.app.AlertDialog.Builder(this)
+                                    .setTitle("Delete " + n.name + "?")
+                                    .setMessage("The apps that use it go back to the setup of "
+                                            + "Every app.")
+                                    .setPositiveButton("Delete", (dd, ww) -> {
+                                        ControllerProfiles.delete(prefs, n.id);
+                                        changed.run();
+                                    }).setNegativeButton("Cancel", null).show();
+                            return;
                     }
-                    ControllerProfiles.save(prefs, pkg, p);
+                    ControllerProfiles.update(prefs, n);
                     changed.run();
-                    if (which != 4) controllerDialog(prefs, pkg, title, changed);
+                    controllerDialog(prefs, n, changed);
                 }).setPositiveButton("Done", null).show();
     }
 

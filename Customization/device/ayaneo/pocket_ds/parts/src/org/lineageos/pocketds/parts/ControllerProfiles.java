@@ -10,6 +10,13 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.SystemProperties;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * A controller setup for each app: swapped face buttons, dead zone of the sticks and button
  * remapping, switched on when the app comes to the front. What was set for every app comes back
@@ -17,7 +24,9 @@ import android.os.SystemProperties;
  * page of the overlay (frameworks/native patches 0003 and 0004).
  */
 final class ControllerProfiles implements ForegroundWatcher.Listener {
-    static final String KEY_PREFIX = "pad_profile_";
+    private static final String KEY_LIST = "pad_profiles";
+    private static final String KEY_NEXT = "pad_next_id";
+    private static final String KEY_APP = "pad_app_";
     private static final String KEY_RESTORE = "pad_restore";
 
     static final String PROP_AB = "persist.sys.pocketds.swap_ab";
@@ -125,6 +134,7 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
 
     ControllerProfiles(Context context) {
         mPrefs = PartsPrefs.get(context);
+        sInstance = this;
     }
 
     void start() {
@@ -135,15 +145,119 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
         onForeground(watcher.current());
     }
 
-    static Profile of(SharedPreferences prefs, String packageName) {
-        return Profile.parse(prefs.getString(KEY_PREFIX + packageName, null));
+    /** A setup the user named ("Switch layout"), chosen for one or more apps. */
+    static final class Named {
+        String id;
+        String name;
+        Profile profile = new Profile();
     }
 
-    static void save(SharedPreferences prefs, String packageName, Profile profile) {
+    private static ControllerProfiles sInstance;
+
+    static List<Named> all(SharedPreferences prefs) {
+        final List<Named> out = new ArrayList<>();
+        try {
+            final JSONArray list = new JSONArray(prefs.getString(KEY_LIST, "[]"));
+            for (int i = 0; i < list.length(); i++) {
+                final JSONObject o = list.getJSONObject(i);
+                final Named n = new Named();
+                n.id = o.getString("id");
+                n.name = o.getString("name");
+                n.profile = Profile.parse(o.optString("data", ""));
+                out.add(n);
+            }
+        } catch (JSONException e) {
+            // an unreadable list is empty
+        }
+        return out;
+    }
+
+    private static void write(SharedPreferences prefs, List<Named> list) {
+        final JSONArray array = new JSONArray();
+        try {
+            for (Named n : list) {
+                array.put(new JSONObject().put("id", n.id).put("name", n.name)
+                        .put("data", n.profile.encode()));
+            }
+        } catch (JSONException e) {
+            return;
+        }
+        prefs.edit().putString(KEY_LIST, array.toString()).apply();
+    }
+
+    static Named find(SharedPreferences prefs, String id) {
+        if (id == null) return null;
+        for (Named n : all(prefs)) if (n.id.equals(id)) return n;
+        return null;
+    }
+
+    static Named create(SharedPreferences prefs, String name) {
+        final List<Named> list = all(prefs);
+        final int next = prefs.getInt(KEY_NEXT, 1);
+        prefs.edit().putInt(KEY_NEXT, next + 1).apply();
+        final Named n = new Named();
+        n.id = "p" + next;
+        n.name = name.trim().isEmpty() ? "Profile " + next : name.trim();
+        list.add(n);
+        write(prefs, list);
+        return n;
+    }
+
+    /** Saves a profile (name and setup) and applies it at once if its app is in front. */
+    static void update(SharedPreferences prefs, Named n) {
+        final List<Named> list = all(prefs);
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i).id.equals(n.id)) list.set(i, n);
+        }
+        write(prefs, list);
+        reapply();
+    }
+
+    static void delete(SharedPreferences prefs, String id) {
+        final List<Named> list = all(prefs);
+        list.removeIf(n -> n.id.equals(id));
+        write(prefs, list);
         final SharedPreferences.Editor editor = prefs.edit();
-        if (profile.empty()) editor.remove(KEY_PREFIX + packageName);
-        else editor.putString(KEY_PREFIX + packageName, profile.encode());
+        for (String key : prefs.getAll().keySet()) {
+            if (key.startsWith(KEY_APP) && id.equals(prefs.getString(key, null))) {
+                editor.remove(key);
+            }
+        }
         editor.apply();
+        reapply();
+    }
+
+    static String assignedId(SharedPreferences prefs, String packageName) {
+        return prefs.getString(KEY_APP + packageName, null);
+    }
+
+    static void assign(SharedPreferences prefs, String packageName, String id) {
+        final SharedPreferences.Editor editor = prefs.edit();
+        if (id == null) editor.remove(KEY_APP + packageName);
+        else editor.putString(KEY_APP + packageName, id);
+        editor.apply();
+        reapply();
+    }
+
+    /** How many apps use a profile. */
+    static int usedBy(SharedPreferences prefs, String id) {
+        int count = 0;
+        for (java.util.Map.Entry<String, ?> e : prefs.getAll().entrySet()) {
+            if (e.getKey().startsWith(KEY_APP) && id.equals(e.getValue())) count++;
+        }
+        return count;
+    }
+
+    /** The setup chosen for an app: empty when it has none. */
+    static Profile forApp(SharedPreferences prefs, String packageName) {
+        final Named n = find(prefs, assignedId(prefs, packageName));
+        return n == null ? new Profile() : n.profile;
+    }
+
+    private static void reapply() {
+        if (sInstance == null) return;
+        final ForegroundWatcher watcher = ForegroundWatcher.get();
+        if (watcher != null) sInstance.onForeground(watcher.current());
     }
 
     /** The setup in use now, as the general one when no profile is on. */
@@ -166,7 +280,7 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
     @Override
     public void onForeground(ActivityManager.RunningTaskInfo app) {
         final Profile wanted = app == null || app.baseActivity == null ? new Profile()
-                : of(mPrefs, app.baseActivity.getPackageName());
+                : forApp(mPrefs, app.baseActivity.getPackageName());
         final String saved = mPrefs.getString(KEY_RESTORE, null);
         if (wanted.empty()) {
             if (saved != null) {

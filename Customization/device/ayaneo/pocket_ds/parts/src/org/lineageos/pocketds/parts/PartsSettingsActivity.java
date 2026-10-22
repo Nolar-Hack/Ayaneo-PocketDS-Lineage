@@ -78,8 +78,10 @@ public class PartsSettingsActivity extends Activity {
                 open(SectionActivity.SOUND)));
         tiles.add(ui.tile("📱", Ui.PINK, "Applications", "Grid, folders, wallpapers",
                 open(SectionActivity.LAUNCHER)));
-        tiles.add(ui.tile("🎮", Ui.PURPLE, "Games", "A profile for each game",
+        tiles.add(ui.tile("🎮", Ui.PURPLE, "Profiles", "Performance and controller, per app",
                 open(SectionActivity.GAMES)));
+        tiles.add(ui.tile("🕹️", Ui.BLUE, "Controller", controllerStatus(),
+                open(SectionActivity.CONTROLLER)));
         tiles.add(ui.tile("🤖", Ui.PURPLE, "Automation", automation,
                 v -> startActivity(new Intent(this, RulesActivity.class))));
         tiles.add(ui.tile("✨", Ui.PINK, "Smart Pixels",
@@ -95,6 +97,11 @@ public class PartsSettingsActivity extends Activity {
         tiles.add(ui.tile("🧰", Ui.GREY, "Tools & logs", "Collect the logs",
                 open(SectionActivity.TOOLS)));
         ui.grid(page, tiles);
+    }
+
+    private String controllerStatus() {
+        final int n = ControllerProfiles.all(PartsPrefs.get(this)).size();
+        return n == 0 ? "Buttons, sticks, profiles" : n + (n == 1 ? " profile" : " profiles");
     }
 
     private String updateStatus() {
