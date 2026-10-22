@@ -147,14 +147,19 @@ public class SectionActivity extends Activity {
                 "Which screen shows what, brightness, touch and when the screens turn off");
 
         ui.section(page, "Brightness");
-        final LinearLayout brightness = ui.card(page);
+        // One tile for each screen, side by side.
+        final LinearLayout brightnessRow = new LinearLayout(this);
+        brightnessRow.setOrientation(LinearLayout.HORIZONTAL);
+        page.addView(brightnessRow, ui.matchWrap(0, 12, 0, 0));
+        final LinearLayout mainTile = ui.cardInRow(brightnessRow, false);
+        final LinearLayout bottomTile = ui.cardInRow(brightnessRow, true);
         final android.content.ContentResolver resolver = getContentResolver();
         final SharedPreferences prefs = PartsPrefs.get(this);
         final int top = Settings.System.getInt(resolver, Settings.System.SCREEN_BRIGHTNESS, 128);
         int bottomValue = Settings.Global.getInt(resolver, "secondary_screen_brightness", -1);
         if (bottomValue <= 0) bottomValue = top;
         final Ui.Row[] rows = new Ui.Row[2];
-        rows[0] = ui.sliderRow(brightness, "☀️", Ui.ORANGE, "Main screen", top, 255, value -> {
+        rows[0] = ui.sliderRow(mainTile, "☀️", Ui.ORANGE, "Main screen", top, 255, value -> {
             Settings.System.putInt(resolver, Settings.System.SCREEN_BRIGHTNESS, Math.max(1, value));
             if (prefs.getBoolean(PartsPrefs.BRIGHTNESS_LINK, false)) {
                 Settings.Global.putInt(resolver, "secondary_screen_brightness", Math.max(1, value));
@@ -164,10 +169,11 @@ public class SectionActivity extends Activity {
                         Settings.Global.getInt(resolver, "secondary_screen_brightness", 128));
             }
         });
-        ui.sliderRow(brightness, "☀️", Ui.TEAL, "Bottom screen", bottomValue, 255, value ->
+        ui.sliderRow(bottomTile, "☀️", Ui.TEAL, "Bottom screen", bottomValue, 255, value ->
                 Settings.Global.putInt(resolver, "secondary_screen_brightness",
                         Math.max(1, value)));
-        ui.switchRow(brightness, "🔗", Ui.BLUE, "Link the two screens",
+        final LinearLayout link = ui.card(page);
+        ui.switchRow(link, "🔗", Ui.BLUE, "Link the two screens",
                 "Moving one slider moves the other", PartsPrefs.BRIGHTNESS_LINK, false);
 
         ui.section(page, "Screen off");

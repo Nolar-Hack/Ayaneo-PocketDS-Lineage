@@ -289,6 +289,18 @@ final class Ui {
         return card;
     }
 
+    /** A card that takes half of a line of two (a horizontal LinearLayout). */
+    LinearLayout cardInRow(LinearLayout row, boolean last) {
+        final LinearLayout card = new LinearLayout(context);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setBackground(outlined(surface, LINE, 16));
+        final LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        params.setMargins(last ? dp(7) : 0, 0, last ? 0 : dp(7), 0);
+        row.addView(card, params);
+        return card;
+    }
+
     LinearLayout.LayoutParams matchWrap(int left, int top, int right, int bottom) {
         final LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
