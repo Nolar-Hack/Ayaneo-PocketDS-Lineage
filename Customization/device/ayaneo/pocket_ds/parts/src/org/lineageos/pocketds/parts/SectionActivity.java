@@ -397,6 +397,20 @@ public class SectionActivity extends Activity {
                 "Do nothing while the console is charging",
                 PartsPrefs.SUSPEND_ONLY_ON_BATTERY, true);
 
+        ui.section(page, "Charging");
+        final LinearLayout charging = ui.card(page);
+        ui.switchRow(charging, "🔋", Ui.GREEN, "Limit the charge",
+                "Stops charging at the level below, to keep the battery healthy longer",
+                ChargeLimitController.PREF_ON, false);
+        ui.choiceRow(charging, "🎯", Ui.TEAL, "Charge up to", ChargeLimitController.PREF_LEVEL,
+                new String[] {"60 %", "70 %", "75 %", "80 %", "85 %", "90 %"},
+                new String[] {"60", "70", "75", "80", "85", "90"}, "80");
+        final String chargeState = PartsPrefs.get(this).getString(ChargeLimitController.PREF_STATE,
+                null);
+        ui.note(page, chargeState != null ? chargeState
+                : "Charging resumes 3 points under the limit. Plug the console in above the "
+                + "limit and this line tells whether the charger obeyed.");
+
         ui.section(page, "Bluetooth");
         final LinearLayout bluetooth = ui.card(page);
         ui.choiceRow(bluetooth, "🎧", Ui.PURPLE, "Off when no device is connected",
@@ -656,15 +670,98 @@ public class SectionActivity extends Activity {
             final String title = label;
             final String key = GameProfiles.KEY_PREFIX + pkg;
             final Ui.Row[] row = new Ui.Row[1];
-            row[0] = ui.actionRow(card, "🎮", Ui.PURPLE, label, profileText(prefs, key), () ->
+            row[0] = ui.actionRow(card, "🎮", Ui.PURPLE, label, gameText(prefs, key, pkg), () ->
                     new android.app.AlertDialog.Builder(this).setTitle(title)
-                            .setItems(choices, (d, which) -> {
-                                if (which == 0) prefs.edit().remove(key).apply();
-                                else prefs.edit().putString(key, Integer.toString(which - 1)).apply();
-                                ui.setSummary(row[0], profileText(prefs, key));
-                            }).show());
+                            .setItems(new String[] {"Performance profile", "Controller"},
+                                    (d, which) -> {
+                                        if (which == 0) {
+                                            performanceDialog(prefs, key, title, choices, () ->
+                                                    ui.setSummary(row[0], gameText(prefs, key, pkg)));
+                                        } else {
+                                            controllerDialog(prefs, pkg, title, () ->
+                                                    ui.setSummary(row[0], gameText(prefs, key, pkg)));
+                                        }
+                                    }).show());
         }
-        ui.note(page, "When you leave the app, the profile you had comes back.");
+        ui.note(page, "When you leave the app, the profile and the controller setup you had "
+                + "come back.");
+    }
+
+    private String gameText(android.content.SharedPreferences prefs, String key, String pkg) {
+        final ControllerProfiles.Profile pad = ControllerProfiles.of(prefs, pkg);
+        return profileText(prefs, key) + (pad.empty() ? "" : " · Controller: " + pad.summary());
+    }
+
+    private void performanceDialog(android.content.SharedPreferences prefs, String key,
+            String title, String[] choices, Runnable changed) {
+        new android.app.AlertDialog.Builder(this).setTitle(title + " · performance")
+                .setItems(choices, (d, which) -> {
+                    if (which == 0) prefs.edit().remove(key).apply();
+                    else prefs.edit().putString(key, Integer.toString(which - 1)).apply();
+                    changed.run();
+                }).show();
+    }
+
+    private static final int[] ZONES = {-1, 0, 5, 10, 15, 20, 25};
+
+    /** The controller setup of one app: each line goes to its next value when tapped. */
+    private void controllerDialog(android.content.SharedPreferences prefs, String pkg,
+            String title, Runnable changed) {
+        final ControllerProfiles.Profile p = ControllerProfiles.of(prefs, pkg);
+        final String[] items = {
+            "Swap A ↔ B: " + choiceText(p.swapAb),
+            "Swap X ↔ Y: " + choiceText(p.swapXy),
+            "Dead zone: " + (p.zone < 0 ? "Same as everywhere"
+                    : p.zone == 0 ? "None" : p.zone + " %"),
+            "Button remapping: " + (p.map == null ? "Same as everywhere"
+                    : p.map.isEmpty() ? "None" : p.map.split(",").length + " (saved)"),
+            "Reset: same as everywhere"};
+        new android.app.AlertDialog.Builder(this).setTitle(title + " · controller")
+                .setItems(items, (d, which) -> {
+                    switch (which) {
+                        case 0: p.swapAb = nextChoice(p.swapAb); break;
+                        case 1: p.swapXy = nextChoice(p.swapXy); break;
+                        case 2: {
+                            int i = 0;
+                            while (i < ZONES.length && ZONES[i] != p.zone) i++;
+                            p.zone = ZONES[(i + 1) % ZONES.length];
+                            break;
+                        }
+                        case 3:
+                            // same as everywhere -> the remapping set now in the overlay -> none
+                            if (p.map == null) {
+                                p.map = android.os.SystemProperties.get(
+                                        ControllerProfiles.PROP_MAP, "");
+                                if (p.map.isEmpty()) {
+                                    Toast.makeText(this, "No remapping is set in the overlay "
+                                            + "(Controller page): this app will have none",
+                                            Toast.LENGTH_LONG).show();
+                                }
+                            } else if (!p.map.isEmpty()) {
+                                p.map = "";
+                            } else {
+                                p.map = null;
+                            }
+                            break;
+                        default:
+                            p.swapAb = -1;
+                            p.swapXy = -1;
+                            p.zone = -1;
+                            p.map = null;
+                            break;
+                    }
+                    ControllerProfiles.save(prefs, pkg, p);
+                    changed.run();
+                    if (which != 4) controllerDialog(prefs, pkg, title, changed);
+                }).setPositiveButton("Done", null).show();
+    }
+
+    private static String choiceText(int value) {
+        return value < 0 ? "Same as everywhere" : value == 1 ? "On" : "Off";
+    }
+
+    private static int nextChoice(int value) {
+        return value < 0 ? 1 : value == 1 ? 0 : -1;
     }
 
     private static String profileText(android.content.SharedPreferences prefs, String key) {
