@@ -36,6 +36,7 @@ public class SectionActivity extends Activity {
     static final String SOUND = "sound";
     static final String LAUNCHER = "launcher";
     static final String GAMES = "games";
+    static final String UPDATES = "updates";
 
     private static final String[] DELAYS = {"Never", "1 min", "5 min", "15 min", "30 min", "1 h"};
     private static final String[] DELAY_VALUES = {"0", "1", "5", "15", "30", "60"};
@@ -83,6 +84,9 @@ public class SectionActivity extends Activity {
                 break;
             case GAMES:
                 games(ui, page);
+                break;
+            case UPDATES:
+                updates(ui, page);
                 break;
             default:
                 tools(ui, page);
@@ -415,6 +419,108 @@ public class SectionActivity extends Activity {
                 "Do not power off while the console is charging",
                 PartsPrefs.POWEROFF_ONLY_ON_BATTERY, true);
         ui.note(page, "Opening the lid or turning the screen on cancels the countdown.");
+    }
+
+    private final Handler mUpdateHandler = new Handler(Looper.getMainLooper());
+    private Runnable mUpdateTick;
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        if (mUpdateTick != null) mUpdateHandler.removeCallbacks(mUpdateTick);
+    }
+
+    /** System update: the installed version, the newest release, and one button for what is next. */
+    private void updates(Ui ui, LinearLayout page) {
+        setTitle("System update");
+        ui.hero(page, "⬆️", Ui.TEAL, "System update",
+                "Installed in the background, the console only restarts when you say so");
+        final LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        page.addView(body, new LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
+        final String[] shown = {null};
+        mUpdateTick = new Runnable() {
+            @Override
+            public void run() {
+                final String signature = Updates.sState + "/" + Updates.sPercent + "/"
+                        + Updates.sMessage + "/" + Updates.restartPending(SectionActivity.this)
+                        + "/" + Updates.lastChecked(SectionActivity.this);
+                if (!signature.equals(shown[0])) {
+                    shown[0] = signature;
+                    body.removeAllViews();
+                    renderUpdates(ui, body);
+                }
+                mUpdateHandler.postDelayed(this, 1000);
+            }
+        };
+        mUpdateHandler.post(mUpdateTick);
+    }
+
+    private void renderUpdates(Ui ui, LinearLayout body) {
+        final LinearLayout now = ui.card(body);
+        ui.row(now, "📦", Ui.BLUE, "Installed", Updates.version() + " · build " + Updates.buildId());
+        final Updates.Info info = Updates.available(this);
+        final boolean busy = UpdateService.running();
+
+        if (Updates.restartPending(this)) {
+            ui.actionRow(now, "🔄", Ui.GREEN, "Restart to finish the update",
+                    "The new version is installed; it starts after the restart", () ->
+                            getSystemService(android.os.PowerManager.class).reboot(null));
+        } else if (busy) {
+            ui.row(now, "⏳", Ui.ORANGE, Updates.sState == Updates.APPLYING ? "Installing"
+                    : "Downloading", Updates.sMessage + (Updates.sPercent > 0
+                    ? " · " + Updates.sPercent + " %" : ""));
+        } else if (info != null) {
+            final Updates.Pack pack = info.pick();
+            ui.row(now, "✨", Ui.TEAL, "Version " + info.version + " available",
+                    (info.date.isEmpty() ? "" : info.date + " · ")
+                            + (pack == info.full ? "Complete package " : "Small update ")
+                            + Updates.size(pack.size));
+            if (Updates.sState == Updates.FAILED) {
+                ui.row(now, "⚠️", Ui.RED, "Last attempt failed", Updates.sMessage);
+            }
+            ui.actionRow(now, "⬇️", Ui.GREEN, "Download and install",
+                    "In the background; keep the console on Wi-Fi and charged", () -> {
+                        startForegroundService(new Intent(this, UpdateService.class));
+                        Toast.makeText(this, "Update started", Toast.LENGTH_SHORT).show();
+                    });
+        } else {
+            final long checked = Updates.lastChecked(this);
+            ui.row(now, "✅", Ui.GREEN, "Up to date", checked == 0 ? "Not checked yet"
+                    : "Checked " + android.text.format.DateUtils.getRelativeTimeSpanString(checked));
+        }
+        if (!busy) {
+            ui.actionRow(now, "🔎", Ui.BLUE, "Check now", "Looks for a newer release", () -> {
+                Toast.makeText(this, "Checking…", Toast.LENGTH_SHORT).show();
+                final Handler main = new Handler(Looper.getMainLooper());
+                new Thread(() -> {
+                    String message;
+                    try {
+                        final Updates.Info found = Updates.check(this);
+                        message = found == null ? "You have the latest version"
+                                : "Version " + found.version + " is available";
+                    } catch (Exception e) {
+                        message = "Cannot reach the update server";
+                    }
+                    final String shownMessage = message;
+                    main.post(() -> Toast.makeText(this, shownMessage, Toast.LENGTH_LONG).show());
+                }).start();
+            });
+        }
+
+        ui.section(body, "Automatic");
+        final LinearLayout auto = ui.card(body);
+        ui.switchRow(auto, "🔎", Ui.BLUE, "Check twice a day",
+                "A notification tells you when a new version is out", Updates.PREF_AUTO_CHECK,
+                true);
+        ui.switchRow(auto, "⬇️", Ui.GREEN, "Install by itself",
+                "Download and install in the background on Wi-Fi, charging or above 50 %",
+                Updates.PREF_AUTO_INSTALL, false);
+        ui.note(body, "The console never restarts on its own: a notification and the button "
+                + "above wait for you. An update that cannot be installed leaves the current "
+                + "version untouched.");
     }
 
     private void tools(Ui ui, LinearLayout page) {

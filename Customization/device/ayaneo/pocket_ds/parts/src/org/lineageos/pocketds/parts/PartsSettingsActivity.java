@@ -90,9 +90,18 @@ public class PartsSettingsActivity extends Activity {
                 batteryStatus(prefs), open(SectionActivity.BATTERY)));
         tiles.add(ui.tile("⏻", Ui.RED, "Power off", powerOffStatus(prefs),
                 open(SectionActivity.POWER_OFF)));
+        tiles.add(ui.tile("⬆️", Ui.TEAL, "System update", updateStatus(),
+                open(SectionActivity.UPDATES)));
         tiles.add(ui.tile("🧰", Ui.GREY, "Tools & logs", "Collect the logs",
                 open(SectionActivity.TOOLS)));
         ui.grid(page, tiles);
+    }
+
+    private String updateStatus() {
+        if (Updates.restartPending(this)) return "Restart to finish the update";
+        final Updates.Info info = Updates.available(this);
+        return info != null ? "Update " + info.version + " available"
+                : "Up to date · " + Updates.version();
     }
 
     private View.OnClickListener open(String section) {

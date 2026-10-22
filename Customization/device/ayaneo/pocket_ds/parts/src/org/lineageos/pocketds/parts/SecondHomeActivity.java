@@ -124,6 +124,14 @@ public class SecondHomeActivity extends Activity {
         bar.addView(headerButton("⇄  Swap screens", true, 0, v -> {
             Screens.setSwapped(this, !Screens.isSwapped(this));
         }));
+        final Updates.Info update = Updates.available(this);
+        if (update != null || Updates.restartPending(this)) {
+            bar.addView(headerButton(update != null ? "⬆  Update " + update.version
+                    : "⬆  Restart to update", true, 0, v -> startActivity(
+                    new Intent(this, SectionActivity.class)
+                            .putExtra(SectionActivity.EXTRA_SECTION, SectionActivity.UPDATES)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))));
+        }
         bar.addView(headerButton("Running apps", false, 0, v -> showRunning()));
         bar.addView(headerButton("Settings", false, 0, v -> {
             startActivity(new Intent(this, PartsSettingsActivity.class)

@@ -14,6 +14,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.MODIFY_DAY_NIGHT_MODE" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
@@ -52,6 +53,15 @@
                 android:resource="@xml/pocketds_method" />
         </service>
 
+        <!-- System updates: twice a day check, download and install in the background -->
+        <service
+            android:name=".UpdateJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+        <service
+            android:name=".UpdateService"
+            android:exported="false"
+            android:foregroundServiceType="systemExempted" />
         <service
             android:name=".KeepAliveService"
             android:directBootAware="true"

@@ -36,6 +36,7 @@ public class PocketDSApplication extends Application {
         start("Metrics", () -> new MetricsRecorder(this).start());
         start("PerfOverlay", () -> new PerfOverlayController(this).start());
         start("CrtAnimation", () -> new CrtAnimation(this).start());
+        start("Updates", () -> UpdateJob.schedule(this));
         start("ObtainiumPack", () -> ObtainiumPack.copyOnce(this));
     }
 

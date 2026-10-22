@@ -126,3 +126,13 @@ the third build of October 2026). `scripts/release.sh next` bumps it, run it bef
 It ends up in `ro.pocketds.version` and `ro.pocketds.version.code` (YEAR*10000 + MONTH*100 + BUILD),
 in the package names (`PocketDS-<version>-lineage-24.0-<date>-full.zip`) and in `OTA/update.json`
 (full package, and the incremental one with the build id it applies to), made by `make-ota.sh`.
+
+### Updates in the console
+
+PocketDS Extra → System update (and the "Update" button of the launcher) reads `update.json` from
+`https://github.com/Nolar-Hack/Ayaneo-PocketDS-Lineage-Releases/releases/latest/download/update.json`
+(`persist.pocketds.update_url` overrides it). Each GitHub release `v<version>` must carry, as assets,
+the packages and the `OTA/update.json` made by `make-ota.sh`. If the installed build is the `from` of the
+incremental package that one is downloaded, else the complete one (also when the incremental fails).
+Installation goes through update_engine in the background; the console only restarts on the user's order.
+With SELinux enforcing, update_engine and the app need their own policy rules.
