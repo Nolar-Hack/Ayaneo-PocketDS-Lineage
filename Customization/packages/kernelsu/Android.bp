@@ -1,0 +1,16 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+// KernelSU Next manager APK, shipped as a plain file and installed as a user app on
+// the first boot (device/ayaneo/pocket_ds/init/pocketds-firstboot.sh): it cannot be a
+// presigned system app (compressed native libraries). Root itself is patched into
+// init_boot by scripts/build.sh. Fetch with scripts/fetch-kernelsu.sh.
+
+prebuilt_etc {
+    name: "KernelSUNext.apk.firstboot",
+    src: "prebuilt/KernelSUNext.apk",
+    filename: "KernelSUNext.apk",
+    sub_dir: "pocketds",
+    system_ext_specific: true,
+}

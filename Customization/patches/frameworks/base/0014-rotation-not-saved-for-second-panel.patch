@@ -1,0 +1,24 @@
+Subject: [PATCH] Ayaneo Pocket DS: the rotation of the second panel is not written to Settings.System
+
+While the second (bottom) panel is the default display (bottom screen only, or screens swapped),
+SystemUI's rotation watcher saved "locked at 270" into Settings.System, the setting of the main
+panel: back on the top panel the screen stayed in portrait. The rotation of the second panel
+stays in the display settings.
+
+diff --git a/services/core/java/com/android/server/wm/DisplayRotation.java b/services/core/java/com/android/server/wm/DisplayRotation.java
+index 4c43176b5..0594ff6fd 100644
+--- a/services/core/java/com/android/server/wm/DisplayRotation.java
++++ b/services/core/java/com/android/server/wm/DisplayRotation.java
+@@ -814,7 +814,11 @@ public class DisplayRotation {
+ 
+     @VisibleForTesting
+     void setUserRotation(int userRotationMode, int userRotation, String caller) {
+-        if (useDefaultSettingsProvider()) {
++        // Ayaneo Pocket DS: while the default display is the second panel (bottom screen only,
++        // or screens swapped), its rotation is kept apart (display settings): writing it into
++        // Settings.System would leave the top panel with the rotation of the bottom one once
++        // it is the default display again.
++        if (useDefaultSettingsProvider() && !mAyaneoPanelRotation) {
+             // We'll be notified via settings listener, so we don't need to update internal values.
+             final ContentResolver res = mContext.getContentResolver();
+             final int accelerometerRotation =

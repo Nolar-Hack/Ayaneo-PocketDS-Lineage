@@ -1,0 +1,12 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+
+// In system_ext, not vendor: static overlays are ordered by partition first, and the
+// LineageOS defaults (desktop windowing on tablets...) come as an RRO on product,
+// which would otherwise override this one.
+runtime_resource_overlay {
+    name: "FrameworksResPocketDS",
+    system_ext_specific: true,
+}

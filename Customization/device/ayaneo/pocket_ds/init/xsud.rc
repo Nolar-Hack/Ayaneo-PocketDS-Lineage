@@ -1,0 +1,12 @@
+# Ayaneo root command helper, used by AYAWindow / AYAHome (performance profiles,
+# CPU/GPU frequencies, fan, thermal limits, backlight, touchpad mode): the apps run
+# "xsu <shell command>", xsu forwards it to xsud which runs it as root (popen).
+# Stock exposes the socket to every app (0666) and AYAWindow even sends
+# "setenforce 0"; here only uid/gid system (the Ayaneo apps) can connect.
+# TODO(enforcing): own SELinux domain limited to the nodes the apps write, no setenforce.
+service xsud /system_ext/bin/xsud
+    class core
+    user root
+    group root system
+    socket xsud stream 0660 system system
+    seclabel u:r:su:s0

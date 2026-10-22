@@ -1,0 +1,17 @@
+
+# Pocket DS — FocalTech power-button fingerprint
+/dev/focaltech_fp                                                               u:object_r:ff_device:s0
+/data/vendor/focaltech(/.*)?                                                    u:object_r:ff_data_file:s0
+/vendor/bin/hw/vendor\.focaltech\.hardware\.biometrics\.fingerprint@1\.0-service u:object_r:hal_fingerprint_default_exec:s0
+
+# Pocket DS — Xbox controller emulation (the AKS gamepad HAL policy comes from
+# device/qcom/sepolicy_vndr kalama)
+/vendor/bin/xbox_controller_simulator                                           u:object_r:xbox_controller_simulator_exec:s0
+
+# Pocket DS — Thundercomm NV storage
+/dev/tsnv                                                                       u:object_r:tsnv_device:s0
+/vendor/bin/hw/vendor\.thundercomm\.hardware\.tsnv@1\.0-service                 u:object_r:hal_tsnv_default_exec:s0
+/vendor/bin/tsnv_test                                                           u:object_r:tsnv_test_exec:s0
+
+# Fan rail power-cycle at boot (init/init.pocketds.fan.sh)
+/vendor/bin/init\.pocketds\.fan\.sh          u:object_r:vendor_qti_init_shell_exec:s0

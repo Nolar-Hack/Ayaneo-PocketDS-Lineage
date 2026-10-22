@@ -1,0 +1,26 @@
+# Bring-up only. Installed in the vendor ramdisk as /system/etc/init/pstore-dump.rc
+# In a normal boot the real /system replaces it, so only recovery/fastbootd (stock
+# recovery ramdisk + this vendor ramdisk) parse it.
+# Copies into /dump, for "adb pull" (stock recovery allows no "adb shell"):
+#   - the previous boot's pstore (ramoops; lost on a forced power-off)
+#   - /metadata/bootlog written by bootlog.sh, mounted read-only
+
+on init
+    mount pstore pstore /sys/fs/pstore
+    mkdir /dump 0755 root root
+    mkdir /mnt/meta 0755 root root
+
+on boot
+    copy /sys/fs/pstore/console-ramoops-0 /dump/console-ramoops-0
+    copy /sys/fs/pstore/pmsg-ramoops-0 /dump/pmsg-ramoops-0
+    copy /sys/fs/pstore/dmesg-ramoops-0 /dump/dmesg-ramoops-0
+    mount f2fs /dev/block/bootdevice/by-name/metadata /mnt/meta ro
+    copy /mnt/meta/bootlog/dmesg.txt /dump/dmesg.txt
+    copy /mnt/meta/bootlog/state.txt /dump/state.txt
+    copy /mnt/meta/bootlog/logcat.txt /dump/logcat.txt
+    chmod 0644 /dump/console-ramoops-0
+    chmod 0644 /dump/pmsg-ramoops-0
+    chmod 0644 /dump/dmesg-ramoops-0
+    chmod 0644 /dump/dmesg.txt
+    chmod 0644 /dump/state.txt
+    chmod 0644 /dump/logcat.txt

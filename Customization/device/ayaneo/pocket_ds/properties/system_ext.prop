@@ -1,0 +1,9 @@
+# Display
+sys.brightness.disable_gamma_conversion=true
+
+# Media
+media.stagefright.thumbnail.prefer_hw_codecs=true
+vendor.mm.enable.qcom_parser=0
+
+# Vendor
+ro.vendor.qti.va_aosp.support=1

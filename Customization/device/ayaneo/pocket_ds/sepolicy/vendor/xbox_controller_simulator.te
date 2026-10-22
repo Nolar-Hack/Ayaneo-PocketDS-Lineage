@@ -1,0 +1,8 @@
+# Thundercomm Xbox controller emulation (root, started on demand)
+type xbox_controller_simulator, domain;
+type xbox_controller_simulator_exec, exec_type, vendor_file_type, file_type;
+init_daemon_domain(xbox_controller_simulator)
+
+allow xbox_controller_simulator uhid_device:chr_file rw_file_perms;
+allow xbox_controller_simulator input_device:dir r_dir_perms;
+allow xbox_controller_simulator input_device:chr_file rw_file_perms;

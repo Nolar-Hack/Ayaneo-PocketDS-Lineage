@@ -1,0 +1,19 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+// Gboard (com.google.android.inputmethod.latin), the default keyboard of the stock
+// ROM, installed unmodified. The APK comes from the stock product image
+// (/product/app/LatinImeGoogle/LatinImeGoogle.apk of a scripts/backup-stock.sh backup).
+
+android_app_import {
+    name: "LatinImeGoogle",
+    apk: "prebuilt/LatinImeGoogle.apk",
+    presigned: true,
+    product_specific: true,
+    // Native libraries are stored uncompressed (extractNativeLibs="false").
+    preprocessed: true,
+    dex_preopt: {
+        enabled: false,
+    },
+}

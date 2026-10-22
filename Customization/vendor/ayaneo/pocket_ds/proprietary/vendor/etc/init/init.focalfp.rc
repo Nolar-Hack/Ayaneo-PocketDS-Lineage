@@ -1,0 +1,9 @@
+# ------------------- focal fingerprint begin -------------------
+on boot
+   chown system system /dev/focaltech_fp
+   chmod 0666          /dev/focaltech_fp 
+
+on post-fs-data
+	mkdir /data/vendor/focaltech 0760 system system
+	restorecon /data/vendor/focaltech
+# ------------------- focal fingerprint end ---------------------		

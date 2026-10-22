@@ -1,0 +1,27 @@
+Subject: [PATCH] BatteryStatsImpl: no wtf for the brightness of the Ayaneo bottom screen
+
+Ayaneo Pocket DS: DisplayPowerController of the bottom panel (display index 2) reports each
+brightness change to BatteryStats, which only tracks one display and answered with Slog.wtf each
+time (am_wtf: Unexpected note screen brightness for display 2). With the slider of the bottom
+screen made smooth that is dozens of wtf per second, each with a stack trace and a drop box entry.
+Displays beyond the tracked ones are ignored; a negative index is still reported.
+
+diff --git a/services/core/java/com/android/server/power/stats/BatteryStatsImpl.java b/services/core/java/com/android/server/power/stats/BatteryStatsImpl.java
+index 73e4d7c39..04b51a1c7 100644
+--- a/services/core/java/com/android/server/power/stats/BatteryStatsImpl.java
++++ b/services/core/java/com/android/server/power/stats/BatteryStatsImpl.java
+@@ -5329,8 +5329,12 @@ public class BatteryStatsImpl extends BatteryStats {
+         final int overallBin;
+         final int numDisplays = mPerDisplayBatteryStats.length;
+         if (display < 0 || display >= numDisplays) {
+-            Slog.wtf(TAG, "Unexpected note screen brightness for display " + display + " (only "
+-                    + mPerDisplayBatteryStats.length + " displays exist...)");
++            // The Pocket DS has a second panel that is not tracked here: its brightness changes
++            // (one per step of the slider) are ignored instead of reported as a wtf each time.
++            if (display < 0) {
++                Slog.wtf(TAG, "Unexpected note screen brightness for display " + display
++                        + " (only " + mPerDisplayBatteryStats.length + " displays exist...)");
++            }
+             return;
+         }
+ 

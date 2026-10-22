@@ -1,0 +1,899 @@
+Subject: [PATCH] Ayaneo Pocket DS screen modes (dual / top only / bottom only)
+
+Re-implements the stock Ayaneo framework support used by AYAHome's Dual Screen
+panel: Settings.Global dual_display_mode (1 both screens, 3 top screen only,
+4 bottom screen only = display swap), dual_display_pointer_mode, and the
+locked_focus_display_id controller focus lock (the gamepad events go to the locked
+display, see frameworks/native 0002-ayaneo-locked-gamepad-display.patch).
+- top screen only: the bottom screen hosts no home (no relaunch loop);
+- bottom screen only: the default display keeps the rotation of the bottom panel;
+- displays enabled again by a mode change get the current power request at once;
+- launches that do not tell their display open on the main screen.
+Active only with ro.product.device.type=AR11.
+
+diff --git a/services/core/java/com/android/server/display/DisplayManagerService.java b/services/core/java/com/android/server/display/DisplayManagerService.java
+--- a/services/core/java/com/android/server/display/DisplayManagerService.java
++++ b/services/core/java/com/android/server/display/DisplayManagerService.java
+@@ -589,6 +589,11 @@ public final class DisplayManagerService extends SystemService {
+ 
+     private boolean mMirrorBuiltInDisplay;
+ 
++    // Ayaneo Pocket DS: last power request of each display group, sent again to the
++    // displays recreated by a screen mode change (see applyAyaneoDualScreenModeLocked).
++    private final SparseArray<DisplayManagerInternal.DisplayPowerRequest>
++            mAyaneoLastPowerRequests = new SparseArray<>();
++
+     // Whether default display should be included in the display topology. Note that this should
+     // only be used for the devices in projected mode.
+     private boolean mIncludeDefaultDisplayInTopology = true;
+@@ -997,6 +1002,11 @@ public final class DisplayManagerService extends SystemService {
+ 
+         mSmallAreaDetectionController = SmallAreaDetectionController.create(mContext);
+ 
++        if (AyaneoDualScreenController.isSupported()) {
++            new AyaneoDualScreenController(mContext, mHandler, mSyncRoot,
++                    this::applyAyaneoDualScreenModeLocked).systemReady();
++        }
++
+         scheduleTopologiesReload(mCurrentUserId, /*isUserSwitching=*/ false);
+ 
+         mSecondaryDisplayPolicy.forceEnableMirrorBuiltInDisplaySettingIfNeeded();
+@@ -2910,6 +2920,46 @@ public final class DisplayManagerService extends SystemService {
+         return null;
+     }
+ 
++    // Ayaneo Pocket DS screen mode change: moves the default display, then re-applies the panel
++    // power states (a panel hidden by the mode is kept off by LocalDisplayDevice).
++    private List<Runnable> applyAyaneoDualScreenModeLocked(boolean secondaryOnly) {
++        mLogicalDisplayMapper.setAyaneoSecondaryOnlyLocked(secondaryOnly);
++        final List<Runnable> panelUpdates = new ArrayList<>();
++        mDisplayDeviceRepo.forEachLocked((DisplayDevice device) -> {
++            final Runnable update;
++            if (AyaneoDualScreenController.isPanelForcedOff(device.getUniqueId())) {
++                update = device.requestDisplayStateLocked(Display.STATE_OFF,
++                        PowerManager.BRIGHTNESS_OFF_FLOAT, PowerManager.BRIGHTNESS_OFF_FLOAT,
++                        null);
++            } else {
++                update = updateDisplayStateLocked(device);
++            }
++            if (update != null) {
++                panelUpdates.add(update);
++            }
++        });
++        // A display enabled again by the mode change has a new power controller that the
++        // power manager only updates on its next state change: until then the panel stays
++        // off. Send it the current request of its group right away.
++        for (int i = 0; i < mAyaneoLastPowerRequests.size(); i++) {
++            final DisplayGroup group =
++                    mLogicalDisplayMapper.getDisplayGroupLocked(mAyaneoLastPowerRequests.keyAt(i));
++            if (group == null) {
++                continue;
++            }
++            for (int j = 0; j < group.getSizeLocked(); j++) {
++                final DisplayPowerController dpc =
++                        mDisplayPowerControllers.get(group.getIdLocked(j));
++                if (dpc != null) {
++                    dpc.requestPowerState(mAyaneoLastPowerRequests.valueAt(i),
++                            false /* waitForNegativeProximity */);
++                }
++            }
++        }
++        scheduleTraversalLocked(false);
++        return panelUpdates;
++    }
++
+     private void configureColorModeLocked(LogicalDisplay display, DisplayDevice device) {
+         if (display.getPrimaryDisplayDeviceLocked() == device) {
+             int colorMode = mPersistentDataStore.getColorMode(device);
+@@ -6620,6 +6670,8 @@ public final class DisplayManagerService extends SystemService {
+                     return true;
+                 }
+ 
++                mAyaneoLastPowerRequests.put(groupId,
++                        new DisplayManagerInternal.DisplayPowerRequest(request));
+                 final int size = displayGroup.getSizeLocked();
+                 boolean ready = true;
+                 for (int i = 0; i < size; i++) {
+diff --git a/services/core/java/com/android/server/display/LocalDisplayAdapter.java b/services/core/java/com/android/server/display/LocalDisplayAdapter.java
+--- a/services/core/java/com/android/server/display/LocalDisplayAdapter.java
++++ b/services/core/java/com/android/server/display/LocalDisplayAdapter.java
+@@ -909,7 +909,20 @@ final class LocalDisplayAdapter extends DisplayAdapter {
+         }
+ 
+         @Override
+-        public Runnable requestDisplayStateLocked(
++        public Runnable requestDisplayStateLocked(int state, float brightnessState,
++                float sdrBrightnessState,
++                @Nullable DisplayOffloadSessionImpl displayOffloadSession) {
++            // Ayaneo Pocket DS: a panel hidden by the current screen mode stays off.
++            if (AyaneoDualScreenController.isPanelForcedOff(getUniqueId())) {
++                state = Display.STATE_OFF;
++                brightnessState = PowerManager.BRIGHTNESS_OFF_FLOAT;
++                sdrBrightnessState = PowerManager.BRIGHTNESS_OFF_FLOAT;
++            }
++            return requestDisplayStateInternalLocked(state, brightnessState, sdrBrightnessState,
++                    displayOffloadSession);
++        }
++
++        private Runnable requestDisplayStateInternalLocked(
+                 final int state,
+                 final float brightnessState,
+                 final float sdrBrightnessState,
+diff --git a/services/core/java/com/android/server/display/LogicalDisplayMapper.java b/services/core/java/com/android/server/display/LogicalDisplayMapper.java
+--- a/services/core/java/com/android/server/display/LogicalDisplayMapper.java
++++ b/services/core/java/com/android/server/display/LogicalDisplayMapper.java
+@@ -138,6 +138,9 @@ class LogicalDisplayMapper implements DisplayDeviceRepository.Listener {
+      */
+     private final boolean mSingleDisplayDemoMode;
+ 
++    /** Ayaneo Pocket DS "bottom screen only" mode, see {@link #setAyaneoSecondaryOnlyLocked}. */
++    private boolean mAyaneoSecondaryOnly;
++
+     /**
+      * True if the device can have more than one internal display on at a time.
+      */
+@@ -1411,6 +1414,67 @@ class LogicalDisplayMapper implements DisplayDeviceRepository.Listener {
+                             : displayLayout.getPowerThrottlingMapId());
+             newDisplay.setDisplayGroupNameLocked(displayLayout.getDisplayGroupName());
+         }
++
++        // The layout always puts the default display back on the top panel.
++        if (mAyaneoSecondaryOnly) {
++            applyAyaneoSecondaryOnlyLocked();
++        }
++    }
++
++    /**
++     * Ayaneo Pocket DS "bottom screen only" mode (see {@link AyaneoDualScreenController}): the
++     * bottom panel becomes the default display and the other built-in panel is disabled.
++     */
++    void setAyaneoSecondaryOnlyLocked(boolean secondaryOnly) {
++        mAyaneoSecondaryOnly = secondaryOnly;
++        if (applyAyaneoSecondaryOnlyLocked()) {
++            updateLogicalDisplaysLocked();
++        }
++    }
++
++    private boolean applyAyaneoSecondaryOnlyLocked() {
++        final LogicalDisplay defaultDisplay = mLogicalDisplays.get(DEFAULT_DISPLAY);
++        if (defaultDisplay == null) {
++            return false;
++        }
++        final String wanted = mAyaneoSecondaryOnly
++                ? AyaneoDualScreenController.SECONDARY_UNIQUE_ID
++                : AyaneoDualScreenController.MAIN_UNIQUE_ID;
++        boolean changed = false;
++        if (!wanted.equals(getUniqueIdLocked(defaultDisplay))) {
++            LogicalDisplay target = null;
++            for (int i = 0; i < mLogicalDisplays.size(); i++) {
++                if (wanted.equals(getUniqueIdLocked(mLogicalDisplays.valueAt(i)))) {
++                    target = mLogicalDisplays.valueAt(i);
++                }
++            }
++            if (target == null) {
++                Slog.w(TAG, "No logical display yet for " + wanted);
++                return false;
++            }
++            Slog.i(TAG, "Default display moved to " + wanted);
++            target.setEnabledLocked(true);
++            defaultDisplay.swapDisplaysLocked(target);
++            changed = true;
++        }
++        for (int i = 0; i < mLogicalDisplays.size(); i++) {
++            final LogicalDisplay display = mLogicalDisplays.valueAt(i);
++            final DisplayDevice device = display.getPrimaryDisplayDeviceLocked();
++            if (display == defaultDisplay || device == null
++                    || device.getDisplayDeviceInfoLocked().type != Display.TYPE_INTERNAL) {
++                continue;
++            }
++            if (display.isEnabledLocked() == mAyaneoSecondaryOnly) {
++                setEnabledLocked(display, !mAyaneoSecondaryOnly);
++                changed = true;
++            }
++        }
++        return changed;
++    }
++
++    private static String getUniqueIdLocked(LogicalDisplay display) {
++        final DisplayDevice device = display.getPrimaryDisplayDeviceLocked();
++        return device == null ? null : device.getUniqueId();
+     }
+ 
+     /**
+diff --git a/services/core/java/com/android/server/input/InputManagerService.java b/services/core/java/com/android/server/input/InputManagerService.java
+--- a/services/core/java/com/android/server/input/InputManagerService.java
++++ b/services/core/java/com/android/server/input/InputManagerService.java
+@@ -1423,6 +1423,14 @@ public class InputManagerService extends IInputManager.Stub
+         mNative.setFocusedDisplay(displayId);
+     }
+ 
++    /**
++     * Ayaneo Pocket DS controller focus lock: the gamepad events go to this display wherever the
++     * user touched, INVALID_DISPLAY to follow the focused display.
++     */
++    public void setLockedGamepadDisplay(int displayId) {
++        mNative.setLockedGamepadDisplay(displayId);
++    }
++
+     /** Clean up input window handles of the given display. */
+     public void onDisplayRemoved(int displayId) {
+         updateAdditionalDisplayInputProperties(displayId, AdditionalDisplayInputProperties::reset);
+diff --git a/services/core/java/com/android/server/input/NativeInputManagerService.java b/services/core/java/com/android/server/input/NativeInputManagerService.java
+--- a/services/core/java/com/android/server/input/NativeInputManagerService.java
++++ b/services/core/java/com/android/server/input/NativeInputManagerService.java
+@@ -123,6 +123,12 @@ interface NativeInputManagerService {
+ 
+     void setFocusedDisplay(int displayId);
+ 
++    /**
++     * Ayaneo Pocket DS: display receiving the gamepad events, INVALID_DISPLAY (-1) for the
++     * focused display.
++     */
++    default void setLockedGamepadDisplay(int displayId) {}
++
+     void setMinTimeBetweenUserActivityPokes(long millis);
+ 
+     boolean transferTouchGesture(IBinder fromChannelToken, IBinder toChannelToken,
+@@ -470,6 +476,9 @@ interface NativeInputManagerService {
+         @Override
+         public native void setFocusedDisplay(int displayId);
+ 
++        @Override
++        public native void setLockedGamepadDisplay(int displayId);
++
+         @Override
+         public native void setMinTimeBetweenUserActivityPokes(long millis);
+ 
+diff --git a/services/core/java/com/android/server/wm/DisplayContent.java b/services/core/java/com/android/server/wm/DisplayContent.java
+--- a/services/core/java/com/android/server/wm/DisplayContent.java
++++ b/services/core/java/com/android/server/wm/DisplayContent.java
+@@ -4406,6 +4406,11 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
+         }
+         WindowState newFocus = findFocusedWindowIfNeeded(topFocusedDisplayId);
+         if (mCurrentFocus == newFocus) {
++            // Ayaneo Pocket DS controller focus lock: every display keeps its own focus, keep the
++            // input focus of the displays that are not on top up to date (as on stock).
++            if (updateInputWindows && mWmService.mRoot.isFocusLocked()) {
++                getInputMonitor().updateInputWindowsLw(true /* force */);
++            }
+             return false;
+         }
+         boolean imeLayeringTargetChanged = false;
+@@ -6167,6 +6172,9 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
+      * and can also be set via {@link VirtualDisplayConfig.Builder#setHomeSupported}.</p>
+      */
+     boolean isHomeSupported() {
++        if (mWmService.mRoot.isAyaneoSecondaryScreenHidden(this)) {
++            return false;
++        }
+         return (mWmService.mDisplayWindowSettings.isHomeSupportedLocked(this) && isTrusted())
+                 || isSystemDecorationsSupported();
+     }
+diff --git a/services/core/java/com/android/server/wm/DisplayRotation.java b/services/core/java/com/android/server/wm/DisplayRotation.java
+--- a/services/core/java/com/android/server/wm/DisplayRotation.java
++++ b/services/core/java/com/android/server/wm/DisplayRotation.java
+@@ -750,6 +750,10 @@ public class DisplayRotation {
+         return oldRotation != Surface.ROTATION_180 && newRotation != Surface.ROTATION_180;
+     }
+ 
++    // Ayaneo Pocket DS second panel, see restoreSettings().
++    private static final String AYANEO_SECONDARY_UNIQUE_ID = "local:4630946708815090308";
++    private boolean mAyaneoPanelRotation;
++
+     void restoreSettings(int userRotationMode, int userRotation, int fixedToUserRotation) {
+         mFixedToUserRotation = fixedToUserRotation;
+         if (mLaptopController != null) {
+@@ -758,7 +762,19 @@ public class DisplayRotation {
+ 
+         // We will retrieve user rotation and user rotation mode from settings for default display.
+         if (isDefaultDisplay) {
+-            return;
++            // Ayaneo Pocket DS: in the bottom-screen-only mode the default display is the
++            // second panel, mounted in portrait: it keeps its own rotation (display settings),
++            // not the one of the main panel stored in Settings.System.
++            final boolean ayaneoSecondaryPanel = AYANEO_SECONDARY_UNIQUE_ID.equals(
++                    mDisplayContent.getDisplayInfo().uniqueId);
++            if (!ayaneoSecondaryPanel) {
++                if (mAyaneoPanelRotation) {
++                    mAyaneoPanelRotation = false;
++                    updateSettings();
++                }
++                return;
++            }
++            mAyaneoPanelRotation = true;
+         }
+         if (userRotationMode != WindowManagerPolicy.USER_ROTATION_FREE
+                 && userRotationMode != WindowManagerPolicy.USER_ROTATION_LOCKED) {
+@@ -1516,6 +1532,10 @@ public class DisplayRotation {
+     /** Return whether the rotation settings has changed. */
+     private boolean updateSettings() {
+         final ContentResolver resolver = mContext.getContentResolver();
++        if (mAyaneoPanelRotation) {
++            // The default display is the Ayaneo second panel: see restoreSettings().
++            return false;
++        }
+         boolean shouldUpdateRotation = false;
+ 
+         synchronized (mLock) {
+diff --git a/services/core/java/com/android/server/wm/LaunchParamsUtil.java b/services/core/java/com/android/server/wm/LaunchParamsUtil.java
+--- a/services/core/java/com/android/server/wm/LaunchParamsUtil.java
++++ b/services/core/java/com/android/server/wm/LaunchParamsUtil.java
+@@ -289,6 +289,9 @@ class LaunchParamsUtil {
+     }
+ 
+     @NonNull
++    private static final boolean IS_AYANEO_AR11 =
++            "AR11".equals(android.os.SystemProperties.get("ro.product.device.type"));
++
+     static TaskDisplayArea getPreferredLaunchTaskDisplayArea(
+             @NonNull ActivityTaskSupervisor supervisor, @Nullable Task task,
+             @Nullable ActivityOptions options, @Nullable ActivityRecord source,
+@@ -465,8 +468,12 @@ class LaunchParamsUtil {
+         }
+ 
+         // Select the TDA from the top focused display if possible.
+-        final DisplayContent focusedDisplay =
+-                supervisor.mRootWindowContainer.getTopFocusedDisplayContent();
++        // Ayaneo Pocket DS: launches that do not tell their display (notifications, shortcuts,
++        // services) open on the main screen, not on the second screen because it was touched
++        // last; launches from the second screen tell it (source activity or process).
++        final DisplayContent focusedDisplay = IS_AYANEO_AR11
++                ? supervisor.mRootWindowContainer.getDefaultDisplay()
++                : supervisor.mRootWindowContainer.getTopFocusedDisplayContent();
+         final TaskDisplayArea defaultTaskDisplayArea;
+         if (canPlaceEntityOnDisplay(focusedDisplay.getDefaultTaskDisplayArea(), activityRecord,
+                 request, supervisor)) {
+diff --git a/services/core/java/com/android/server/wm/RootWindowContainer.java b/services/core/java/com/android/server/wm/RootWindowContainer.java
+--- a/services/core/java/com/android/server/wm/RootWindowContainer.java
++++ b/services/core/java/com/android/server/wm/RootWindowContainer.java
+@@ -115,11 +115,13 @@ import android.os.Message;
+ import android.os.PowerManager;
+ import android.os.RemoteException;
+ import android.os.SystemClock;
++import android.os.SystemProperties;
+ import android.os.Trace;
+ import android.os.UserHandle;
+ import android.os.storage.StorageManager;
+ import android.provider.Settings;
+ import android.service.voice.IVoiceInteractionSession;
++import android.text.TextUtils;
+ import android.util.ArrayMap;
+ import android.util.ArraySet;
+ import android.util.IntArray;
+@@ -204,6 +206,17 @@ class RootWindowContainer extends WindowContainer<DisplayContent>
+     // Map from the PID to the top most app which has a focused window of the process.
+     final ArrayMap<Integer, ActivityRecord> mTopFocusedAppByProcess = new ArrayMap<>();
+ 
++    // Ayaneo Pocket DS locked focus display, see onLockedFocusDisplayChanged().
++    static final String AYANEO_LOCKED_FOCUS_SETTING = "locked_focus_display_id";
++    private static final String AYANEO_LOCKED_FOCUS_PROP = "persist.tc.locked_focus_display_id";
++    private static final String AYANEO_SECONDARY_UNIQUE_ID = "local:4630946708815090308";
++    private String mLockedFocusDisplay;
++    private int mLockedGamepadDisplayId = INVALID_DISPLAY;
++    // Ayaneo Pocket DS screen mode (Settings.Global, see AyaneoDualScreenController).
++    static final String AYANEO_DUAL_DISPLAY_MODE_SETTING = "dual_display_mode";
++    private static final String AYANEO_DUAL_DISPLAY_MODE_MAIN_ONLY = "3";
++    private boolean mAyaneoSecondaryScreenHidden;
++
+     /**
+      * The modes which affect which tasks are returned when calling
+      * {@link RootWindowContainer#anyTaskForId(int)}.
+@@ -453,13 +466,18 @@ class RootWindowContainer extends WindowContainer<DisplayContent>
+         mTopFocusedAppByProcess.clear();
+         boolean changed = false;
+         int topFocusedDisplayId = INVALID_DISPLAY;
++        // Ayaneo Pocket DS controller focus lock: while a display is locked, every display keeps
++        // its own focus and the gamepad events go to the locked one (InputDispatcher), wherever
++        // the user touched. The top focused display itself is not forced, as on stock.
++        final DisplayContent lockedFocusDisplay = getLockedFocusDisplay();
+         // Go through the children in z-order starting at the top-most
+         for (int i = mChildren.size() - 1; i >= 0; --i) {
+             final DisplayContent dc = mChildren.get(i);
+             if ((dc.isRemovedOrInvalid() || dc.isRemoving())) {
+                 continue;
+             }
+-            changed |= dc.updateFocusedWindowLocked(mode, updateInputWindows, topFocusedDisplayId);
++            changed |= dc.updateFocusedWindowLocked(mode, updateInputWindows,
++                    lockedFocusDisplay != null ? INVALID_DISPLAY : topFocusedDisplayId);
+             final WindowState newFocus = dc.mCurrentFocus;
+             if (newFocus != null) {
+                 final int pidOfNewFocus = newFocus.mSession.mPid;
+@@ -476,6 +494,15 @@ class RootWindowContainer extends WindowContainer<DisplayContent>
+                 topFocusedDisplayId = dc.getDisplayId();
+             }
+         }
++        // Only lock on a display that can receive the gamepad keys, else they would wait for a
++        // focused window there (ANR).
++        final int lockedGamepadDisplayId =
++                lockedFocusDisplay != null && lockedFocusDisplay.mCurrentFocus != null
++                        ? lockedFocusDisplay.getDisplayId() : INVALID_DISPLAY;
++        if (mLockedGamepadDisplayId != lockedGamepadDisplayId) {
++            mLockedGamepadDisplayId = lockedGamepadDisplayId;
++            mWmService.mInputManager.setLockedGamepadDisplay(lockedGamepadDisplayId);
++        }
+         if (topFocusedDisplayId == INVALID_DISPLAY) {
+             topFocusedDisplayId = DEFAULT_DISPLAY;
+         }
+@@ -489,6 +516,99 @@ class RootWindowContainer extends WindowContainer<DisplayContent>
+         return changed;
+     }
+ 
++    /**
++     * Ayaneo Pocket DS: display that keeps the input focus, set by the Ayaneo launcher in
++     * Settings.Global "locked_focus_display_id" (a display id, or "none"). Mirrored in
++     * persist.tc.locked_focus_display_id like the stock framework.
++     */
++    void onLockedFocusDisplayChanged(boolean updateFocus) {
++        String value = Settings.Global.getString(mWmService.mContext.getContentResolver(),
++                AYANEO_LOCKED_FOCUS_SETTING);
++        if (TextUtils.isEmpty(value)) {
++            value = SystemProperties.get(AYANEO_LOCKED_FOCUS_PROP, "");
++        } else if (!value.equals(SystemProperties.get(AYANEO_LOCKED_FOCUS_PROP, ""))) {
++            try {
++                SystemProperties.set(AYANEO_LOCKED_FOCUS_PROP, value);
++            } catch (RuntimeException e) {
++                Slog.e(TAG, "Failed to set " + AYANEO_LOCKED_FOCUS_PROP + "=" + value, e);
++            }
++        }
++        synchronized (mService.mGlobalLock) {
++            mLockedFocusDisplay = value.trim();
++            Slog.d(TAG, "locked_focus_display_id=" + mLockedFocusDisplay);
++            if (updateFocus) {
++                mWmService.updateFocusedWindowLocked(UPDATE_FOCUS_NORMAL,
++                        true /* updateInputWindows */);
++            }
++        }
++    }
++
++    /**
++     * Ayaneo Pocket DS: in the "main screen only" mode the second screen panel is off and its
++     * launcher (AYAHome SECONDARY_HOME) closes itself: that display must not host a home,
++     * which would be relaunched in a loop. The home comes back with the screen.
++     */
++    void onAyaneoDualDisplayModeChanged() {
++        final boolean hidden = AYANEO_DUAL_DISPLAY_MODE_MAIN_ONLY.equals(
++                Settings.Global.getString(mWmService.mContext.getContentResolver(),
++                        AYANEO_DUAL_DISPLAY_MODE_SETTING));
++        synchronized (mService.mGlobalLock) {
++            if (hidden == mAyaneoSecondaryScreenHidden) {
++                return;
++            }
++            mAyaneoSecondaryScreenHidden = hidden;
++            Slog.d(TAG, "Ayaneo second screen hidden=" + hidden);
++            if (hidden) {
++                return;
++            }
++            for (int i = mChildren.size() - 1; i >= 0; --i) {
++                final DisplayContent dc = mChildren.get(i);
++                if (isAyaneoSecondaryScreen(dc)) {
++                    startHomeOnDisplay(mCurrentUser, "ayaneoDualDisplayMode", dc.getDisplayId());
++                }
++            }
++        }
++    }
++
++    /** Whether the Ayaneo controller focus lock is set on an existing display. */
++    boolean isFocusLocked() {
++        return getLockedFocusDisplay() != null;
++    }
++
++    /** Whether this display is the Ayaneo second screen while its panel is off by mode. */
++    boolean isAyaneoSecondaryScreenHidden(DisplayContent dc) {
++        return mAyaneoSecondaryScreenHidden && isAyaneoSecondaryScreen(dc);
++    }
++
++    private static boolean isAyaneoSecondaryScreen(DisplayContent dc) {
++        return AYANEO_SECONDARY_UNIQUE_ID.equals(dc.getDisplayInfo().uniqueId);
++    }
++
++    @Nullable
++    private DisplayContent getLockedFocusDisplay() {
++        if (TextUtils.isEmpty(mLockedFocusDisplay) || "none".equals(mLockedFocusDisplay)) {
++            return null;
++        }
++        final int displayId;
++        try {
++            displayId = Integer.parseInt(mLockedFocusDisplay);
++        } catch (NumberFormatException e) {
++            return null;
++        }
++        final DisplayContent dc = getDisplayContent(displayId);
++        if (dc != null) {
++            return dc;
++        }
++        // The locked display is gone (screen mode change): fall back to the bottom screen.
++        for (int i = mChildren.size() - 1; i >= 0; --i) {
++            final DisplayContent child = mChildren.get(i);
++            if (AYANEO_SECONDARY_UNIQUE_ID.equals(child.getDisplayInfo().uniqueId)) {
++                return child;
++            }
++        }
++        return null;
++    }
++
+     DisplayContent getTopFocusedDisplayContent() {
+         final DisplayContent dc = getDisplayContent(mTopFocusedDisplayId);
+         return dc != null ? dc : getDisplayContent(DEFAULT_DISPLAY);
+diff --git a/services/core/java/com/android/server/wm/WindowManagerService.java b/services/core/java/com/android/server/wm/WindowManagerService.java
+index 700c1d1cc..3e345f965 100644
+--- a/services/core/java/com/android/server/wm/WindowManagerService.java
++++ b/services/core/java/com/android/server/wm/WindowManagerService.java
+@@ -862,6 +862,10 @@ public class WindowManagerService extends IWindowManager.Stub
+                 Settings.Global.MAXIMUM_OBSCURING_OPACITY_FOR_TOUCH);
+         private final Uri mDevelopmentOverrideDesktopExperienceUri = Settings.Global.getUriFor(
+                 Settings.Global.DEVELOPMENT_OVERRIDE_DESKTOP_EXPERIENCE_FEATURES);
++        private final Uri mAyaneoLockedFocusDisplayUri = Settings.Global.getUriFor(
++                RootWindowContainer.AYANEO_LOCKED_FOCUS_SETTING);
++        private final Uri mAyaneoDualDisplayModeUri = Settings.Global.getUriFor(
++                RootWindowContainer.AYANEO_DUAL_DISPLAY_MODE_SETTING);
+ 
+         public SettingsObserver() {
+             super(new Handler());
+@@ -898,6 +902,14 @@ public class WindowManagerService extends IWindowManager.Stub
+                     UserHandle.USER_ALL);
+             resolver.registerContentObserver(mDevelopmentOverrideDesktopExperienceUri, false, this,
+                     UserHandle.USER_ALL);
++            if ("AR11".equals(SystemProperties.get("ro.product.device.type"))) {
++                resolver.registerContentObserver(mAyaneoLockedFocusDisplayUri, false, this,
++                        UserHandle.USER_ALL);
++                mRoot.onLockedFocusDisplayChanged(false /* updateFocus */);
++                resolver.registerContentObserver(mAyaneoDualDisplayModeUri, false, this,
++                        UserHandle.USER_ALL);
++                mRoot.onAyaneoDualDisplayModeChanged();
++            }
+         }
+ 
+         @Override
+@@ -945,6 +957,16 @@ public class WindowManagerService extends IWindowManager.Stub
+                 updateMagnifyIme();
+             }
+ 
++            if (mAyaneoLockedFocusDisplayUri.equals(uri)) {
++                mRoot.onLockedFocusDisplayChanged(true /* updateFocus */);
++                return;
++            }
++
++            if (mAyaneoDualDisplayModeUri.equals(uri)) {
++                mRoot.onAyaneoDualDisplayModeChanged();
++                return;
++            }
++
+             if (mDevelopmentOverrideDesktopExperienceUri.equals(uri)) {
+                 updateDevelopmentOverrideDesktopExperience();
+                 return;
+@@ -3717,6 +3739,14 @@ public class WindowManagerService extends IWindowManager.Stub
+                     return false;
+                 }
+ 
++                // Ayaneo Pocket DS: with the controller focus lock every display keeps its own
++                // focus, so a key or a touch on the other screen must not reorder the displays
++                // (the on-screen keyboard would swap them on every key, each swap being a
++                // transition, until one never gets ready and the app stops answering).
++                if (mRoot.isFocusLocked()) {
++                    return false;
++                }
++
+                 final ActionChain chain = mAtmService.mChainTracker.startTransit("dispToTop");
+                 Transition transition = null;
+                 boolean transitionNewlyCreated = false;
+diff --git a/services/core/jni/com_android_server_input_InputManagerService.cpp b/services/core/jni/com_android_server_input_InputManagerService.cpp
+--- a/services/core/jni/com_android_server_input_InputManagerService.cpp
++++ b/services/core/jni/com_android_server_input_InputManagerService.cpp
+@@ -370,6 +370,7 @@ public:
+     void setFocusedApplication(JNIEnv* env, ui::LogicalDisplayId displayId,
+                                jobject applicationHandleObj);
+     void setFocusedDisplay(ui::LogicalDisplayId displayId);
++    void setLockedGamepadDisplay(ui::LogicalDisplayId displayId);
+     void setMinTimeBetweenUserActivityPokes(int64_t intervalMillis);
+     void setInputDispatchMode(bool enabled, bool frozen);
+     void setSystemUiLightsOut(bool lightsOut);
+@@ -1518,6 +1519,10 @@ void NativeInputManager::setFocusedDisplay(ui::LogicalDisplayId displayId) {
+     mInputManager->getDispatcher().setFocusedDisplay(displayId);
+ }
+ 
++void NativeInputManager::setLockedGamepadDisplay(ui::LogicalDisplayId displayId) {
++    mInputManager->getDispatcher().setLockedGamepadDisplay(displayId);
++}
++
+ void NativeInputManager::setMinTimeBetweenUserActivityPokes(int64_t intervalMillis) {
+     mInputManager->getDispatcher().setMinTimeBetweenUserActivityPokes(
+             std::chrono::milliseconds(intervalMillis));
+@@ -2833,6 +2838,12 @@ static void nativeSetFocusedDisplay(JNIEnv* env, jobject nativeImplObj, jint dis
+     im->setFocusedDisplay(ui::LogicalDisplayId{displayId});
+ }
+ 
++static void nativeSetLockedGamepadDisplay(JNIEnv* env, jobject nativeImplObj, jint displayId) {
++    NativeInputManager* im = getNativeInputManager(env, nativeImplObj);
++
++    im->setLockedGamepadDisplay(ui::LogicalDisplayId{displayId});
++}
++
+ static void nativeSetUserActivityPokeInterval(JNIEnv* env, jobject nativeImplObj,
+                                               jlong intervalMillis) {
+     NativeInputManager* im = getNativeInputManager(env, nativeImplObj);
+@@ -3711,6 +3722,7 @@ static const JNINativeMethod gInputManagerMethods[] = {
+         {"setFocusedApplication", "(ILandroid/view/InputApplicationHandle;)V",
+          (void*)nativeSetFocusedApplication},
+         {"setFocusedDisplay", "(I)V", (void*)nativeSetFocusedDisplay},
++        {"setLockedGamepadDisplay", "(I)V", (void*)nativeSetLockedGamepadDisplay},
+         {"setMinTimeBetweenUserActivityPokes", "(J)V", (void*)nativeSetUserActivityPokeInterval},
+         {"requestPointerCapture", "(Landroid/os/IBinder;I)V", (void*)nativeRequestPointerCapture},
+         {"setInputDispatchMode", "(ZZ)V", (void*)nativeSetInputDispatchMode},
+diff --git a/services/core/java/com/android/server/display/AyaneoDualScreenController.java b/services/core/java/com/android/server/display/AyaneoDualScreenController.java
+new file mode 100644
+--- /dev/null
++++ b/services/core/java/com/android/server/display/AyaneoDualScreenController.java
+@@ -0,0 +1,273 @@
++/*
++ * Copyright (C) 2026 The LineageOS Project
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *      http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++package com.android.server.display;
++
++import android.content.Context;
++import android.database.ContentObserver;
++import android.hardware.Sensor;
++import android.hardware.SensorEvent;
++import android.hardware.SensorEventListener;
++import android.hardware.SensorManager;
++import android.net.Uri;
++import android.os.Handler;
++import android.os.SystemClock;
++import android.os.SystemProperties;
++import android.os.UserHandle;
++import android.provider.Settings;
++import android.text.TextUtils;
++import android.util.Slog;
++
++import com.android.server.LocalServices;
++import com.android.server.policy.WindowManagerPolicy;
++
++import java.io.FileWriter;
++import java.io.IOException;
++import java.util.List;
++
++/**
++ * Screen modes of the Ayaneo Pocket DS (device type AR11), as implemented by the stock Ayaneo
++ * framework. The Ayaneo launcher (AYAHome) selects them through Settings.Global:
++ * <ul>
++ * <li>{@code dual_display_mode} 1: both screens (default).
++ * <li>{@code dual_display_mode} 3: top screen only. The bottom panel is blanked; with
++ *     {@code dual_display_pointer_mode} 1 (mouse) or 2 (touchpad) its touch layer keeps working
++ *     as a mouse driving a pointer on the top screen (the stock framework also has a
++ *     touchpad-gesture variant for 2, in its native input code; both act as a mouse here).
++ * <li>{@code dual_display_mode} 4: bottom screen only. The bottom panel becomes the default
++ *     display and the top panel is turned off.
++ * </ul>
++ * Modes 0 (mirroring) and 2 also exist in the stock framework, but AYAHome never selects them;
++ * they are handled as mode 1. The applied values are mirrored into persist.tc.* properties,
++ * which the stock framework and AYAHome read back.
++ *
++ * The clamshell lid is a Hall effect sensor (ROHM bu52053nvx), not an input switch: the stock
++ * framework reads it in DisplayPowerController as a "proximity" sensor and reports it to
++ * WindowManagerPolicy.notifyLidSwitchChanged; here it is read directly (see registerLidHallSensor).
++ */
++final class AyaneoDualScreenController {
++    private static final String TAG = "AyaneoDualScreen";
++
++    static final String MAIN_UNIQUE_ID = "local:4630946412288502659";
++    static final String SECONDARY_UNIQUE_ID = "local:4630946708815090308";
++
++    private static final String MODE_DUAL = "1";
++    private static final String MODE_MAIN_ONLY = "3";
++    private static final String MODE_SECONDARY_ONLY = "4";
++
++    private static final String SETTING_MODE = "dual_display_mode";
++    private static final String SETTING_POINTER_MODE = "dual_display_pointer_mode";
++    private static final String PROP_MODE = "persist.tc.dual_display_mode";
++    private static final String PROP_POINTER_MODE = "persist.tc.dual_display_pointer_mode";
++
++    // Goodix controller of the bottom screen: event_report turns its reports on and off,
++    // touchpad_mode selects its input device: 1 (default) the touchscreen, 0 the "pad" device,
++    // a mouse (relative motion, buttons, wheel) that moves the pointer of the top screen.
++    private static final String BOTTOM_TOUCH_NODES =
++            "/sys/devices/platform/soc/ac0000.qcom,qupv3_1_geni_se/a88000.i2c/i2c-2/2-005d/";
++
++    // Hall effect sensor of the lid: the stock framework names it in config_lidHallSensorType
++    // and config_lidHallSensorFallbackType.
++    private static final String LID_HALL_SENSOR_TYPE = "qti.sensor.hall_effect";
++    private static final int LID_HALL_SENSOR_FALLBACK_TYPE = 33171002;
++    // Same threshold as the proximity sensors: a value under it means near (magnet: lid closed).
++    private static final float LID_NEAR_THRESHOLD = 5.0f;
++
++    private static volatile String sMode = MODE_DUAL;
++
++    interface Callbacks {
++        /**
++         * Called with the display sync root held after a mode change: lays out the logical
++         * displays and returns the runnables that apply the panel power states.
++         */
++        List<Runnable> applyModeLocked(boolean secondaryOnly);
++    }
++
++    private final Context mContext;
++    private final Handler mHandler;
++    private final Object mLock;
++    private final Callbacks mCallbacks;
++    private String mAppliedMode = "";
++    private String mAppliedPointerMode = "";
++
++    static boolean isSupported() {
++        return "AR11".equals(SystemProperties.get("ro.product.device.type"));
++    }
++
++    /**
++     * Whether this is the bottom screen. Its brightness is applied at once, without the ramp of
++     * the display power controller: the slider of AYAHome also writes the backlight directly, and
++     * the ramp made the screen lag behind it.
++     */
++    static boolean isSecondaryScreen(String uniqueId) {
++        return isSupported() && SECONDARY_UNIQUE_ID.equals(uniqueId);
++    }
++
++    /** Whether the panel must stay off, whatever the display power controller requests. */
++    static boolean isPanelForcedOff(String uniqueId) {
++        final String mode = sMode;
++        return (MODE_MAIN_ONLY.equals(mode) && SECONDARY_UNIQUE_ID.equals(uniqueId))
++                || (MODE_SECONDARY_ONLY.equals(mode) && MAIN_UNIQUE_ID.equals(uniqueId));
++    }
++
++    AyaneoDualScreenController(Context context, Handler handler, Object lock,
++            Callbacks callbacks) {
++        mContext = context;
++        mHandler = handler;
++        mLock = lock;
++        mCallbacks = callbacks;
++    }
++
++    void systemReady() {
++        final ContentObserver observer = new ContentObserver(mHandler) {
++            @Override
++            public void onChange(boolean selfChange, Uri uri) {
++                apply();
++            }
++        };
++        mContext.getContentResolver().registerContentObserver(
++                Settings.Global.getUriFor(SETTING_MODE), false, observer, UserHandle.USER_ALL);
++        mContext.getContentResolver().registerContentObserver(
++                Settings.Global.getUriFor(SETTING_POINTER_MODE), false, observer,
++                UserHandle.USER_ALL);
++        mHandler.post(this::apply);
++        registerLidHallSensor();
++    }
++
++    /**
++     * Reports the lid (Hall effect sensor) to the window manager policy, which puts the device to
++     * sleep when it closes (config_lidControlsSleep) and wakes it when it opens. The wake-up
++     * variant of the sensor is used so that opening the lid wakes the device from suspend.
++     */
++    private void registerLidHallSensor() {
++        final SensorManager sensorManager = mContext.getSystemService(SensorManager.class);
++        if (sensorManager == null) {
++            Slog.w(TAG, "No SensorManager: the lid is not monitored");
++            return;
++        }
++        Sensor hall = null;
++        for (Sensor sensor : sensorManager.getSensorList(Sensor.TYPE_ALL)) {
++            if (sensor.isWakeUpSensor() && (LID_HALL_SENSOR_TYPE.equals(sensor.getStringType())
++                    || sensor.getType() == LID_HALL_SENSOR_FALLBACK_TYPE)) {
++                hall = sensor;
++                break;
++            }
++        }
++        if (hall == null) {
++            Slog.w(TAG, "No wake-up Hall effect sensor: the lid is not monitored");
++            return;
++        }
++        final float threshold = Math.min(hall.getMaximumRange(), LID_NEAR_THRESHOLD);
++        final boolean[] lastOpen = new boolean[] {true};
++        final boolean[] known = new boolean[1];
++        sensorManager.registerListener(new SensorEventListener() {
++            @Override
++            public void onSensorChanged(SensorEvent event) {
++                final float value = event.values[0];
++                final boolean open = !(value >= 0 && value < threshold);
++                if (known[0] && open == lastOpen[0]) {
++                    return;
++                }
++                known[0] = true;
++                lastOpen[0] = open;
++                Slog.i(TAG, "Lid " + (open ? "open" : "closed") + " (hall value " + value + ")");
++                deliverLidState(lastOpen);
++            }
++
++            @Override
++            public void onAccuracyChanged(Sensor sensor, int accuracy) {}
++        }, hall, SensorManager.SENSOR_DELAY_NORMAL, mHandler);
++        Slog.i(TAG, "Lid monitored with " + hall.getName());
++    }
++
++    /**
++     * The sensor reports its first value very early in the boot. Passing it to the policy right
++     * away makes it send ACTION_LID_STATE_CHANGED, which the activity manager refuses before the
++     * boot is completed (IllegalStateException in system_server: a boot loop). The state is kept
++     * and handed over once sys.boot_completed is set.
++     */
++    private void deliverLidState(boolean[] lastOpen) {
++        mHandler.removeCallbacksAndMessages(lastOpen);
++        if (!SystemProperties.getBoolean("sys.boot_completed", false)) {
++            mHandler.postDelayed(() -> deliverLidState(lastOpen), lastOpen, 1000);
++            return;
++        }
++        final WindowManagerPolicy policy = LocalServices.getService(WindowManagerPolicy.class);
++        if (policy != null) {
++            policy.notifyLidSwitchChanged(SystemClock.elapsedRealtimeNanos(), lastOpen[0]);
++        }
++    }
++
++    private String read(String setting, String prop) {
++        final String value = Settings.Global.getString(mContext.getContentResolver(), setting);
++        return TextUtils.isEmpty(value) ? SystemProperties.get(prop, "") : value;
++    }
++
++    private static void persist(String prop, String value) {
++        if (!value.equals(SystemProperties.get(prop, ""))) {
++            try {
++                SystemProperties.set(prop, value);
++            } catch (RuntimeException e) {
++                Slog.e(TAG, "Failed to set " + prop + "=" + value, e);
++            }
++        }
++    }
++
++    private void apply() {
++        String mode = read(SETTING_MODE, PROP_MODE);
++        if (!MODE_MAIN_ONLY.equals(mode) && !MODE_SECONDARY_ONLY.equals(mode)) {
++            mode = MODE_DUAL;
++        }
++        String pointerMode = read(SETTING_POINTER_MODE, PROP_POINTER_MODE);
++        if (!"1".equals(pointerMode) && !"2".equals(pointerMode)) {
++            pointerMode = "0";
++        }
++        if (mode.equals(mAppliedMode) && pointerMode.equals(mAppliedPointerMode)) {
++            return;
++        }
++        Slog.i(TAG, "dual_display_mode " + mAppliedMode + " -> " + mode
++                + ", pointer mode " + mAppliedPointerMode + " -> " + pointerMode);
++        persist(PROP_MODE, mode);
++        persist(PROP_POINTER_MODE, pointerMode);
++
++        final List<Runnable> panelUpdates;
++        synchronized (mLock) {
++            sMode = mode;
++            panelUpdates = mCallbacks.applyModeLocked(MODE_SECONDARY_ONLY.equals(mode));
++        }
++        for (Runnable update : panelUpdates) {
++            update.run();
++        }
++
++        // The bottom touch layer only reports while the bottom screen is in use: shown, or
++        // driving the pointer of the top screen (top screen only + pointer mode).
++        final boolean bottomPointer = MODE_MAIN_ONLY.equals(mode) && !"0".equals(pointerMode);
++        writeNode(BOTTOM_TOUCH_NODES + "touchpad_mode", bottomPointer ? "0" : "1");
++        writeNode(BOTTOM_TOUCH_NODES + "event_report",
++                !MODE_MAIN_ONLY.equals(mode) || bottomPointer ? "1" : "0");
++
++        mAppliedMode = mode;
++        mAppliedPointerMode = pointerMode;
++    }
++
++    private static void writeNode(String path, String value) {
++        try (FileWriter writer = new FileWriter(path)) {
++            writer.write(value);
++        } catch (IOException e) {
++            Slog.w(TAG, "Failed to write " + value + " to " + path, e);
++        }
++    }
++}

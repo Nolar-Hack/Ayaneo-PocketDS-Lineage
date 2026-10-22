@@ -1,0 +1,10 @@
+# Bring-up only (WITH_ADB_INSECURE builds): see bootlog.sh
+service bootlog_dbg /system/bin/sh /system_ext/bin/bootlog.sh
+    user root
+    group root
+    seclabel u:r:su:s0
+    oneshot
+    disabled
+
+on early-init
+    start bootlog_dbg

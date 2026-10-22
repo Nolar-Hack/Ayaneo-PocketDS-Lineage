@@ -1,0 +1,6 @@
+service vendor.xbox_controller_simulator /vendor/bin/xbox_controller_simulator
+    class main
+    user root
+    group root
+    disabled
+    oneshot

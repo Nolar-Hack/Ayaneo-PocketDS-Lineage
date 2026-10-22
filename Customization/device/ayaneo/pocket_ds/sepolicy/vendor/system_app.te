@@ -1,0 +1,15 @@
+# Ayaneo apps run as uid system (system_app): fan control, FocalTech service
+allow system_app sysfs_fan:dir r_dir_perms;
+allow system_app sysfs_fan:file rw_file_perms;
+allow system_app ff_hwservice:hwservice_manager find;
+hal_client_domain(system_app, hal_gamepad)
+
+# PocketDS Parts: touch threshold / charger mode of the main screen controller
+allow system_app sysfs_touchpanel:file rw_file_perms;
+
+# AYAHome / AYAWindow performance overlay: FPS and GPU clock counters
+allow system_app vendor_sysfs_graphics:file r_file_perms;
+allow system_app vendor_sysfs_kgsl_gpuclk:file r_file_perms;
+# The overlay also reads /proc/stat, /proc/sys/kernel/pid_max and runs "top": platform types
+# (proc_stat, proc_pid_max, other domains' /proc entries) that vendor policy cannot allow;
+# when going to enforcing, check that it still works (denials seen while permissive).

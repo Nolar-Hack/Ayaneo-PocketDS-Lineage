@@ -1,0 +1,53 @@
+Subject: [PATCH] WindowManager: IME on the second screen keeps working with its own content
+
+Ayaneo Pocket DS: the keyboard of apps on the main screen is shown on the second screen
+(0001-ime-on-second-screen.patch). Since the second screen shows its own content (the
+AYAHome launcher), the IME window lives on a display whose input target is another
+window, so the show / hide requests of the main screen app never reached it
+(PHASE_SERVER_ABORT_SHOW_IME_POST_LAYOUT, then PHASE_SERVER_SET_REMOTE_TARGET_IME_VISIBILITY).
+When the IME target changes, the other display hosting the IME window takes the same
+input target, and since that window is on another display, the shell (its remote insets
+controller) controls the IME there; the app gets no IME insets for a keyboard that is
+not on its screen.
+
+diff --git a/services/core/java/com/android/server/wm/DisplayContent.java b/services/core/java/com/android/server/wm/DisplayContent.java
+--- a/services/core/java/com/android/server/wm/DisplayContent.java
++++ b/services/core/java/com/android/server/wm/DisplayContent.java
+@@ -5313,6 +5313,14 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
+         }
+ 
+         final WindowState imeInputTargetWindow = mImeInputTarget.getWindowState();
++        // Ayaneo Pocket DS: the keyboard of the main screen is shown on the second screen
++        // (persist.sys.pocketds.ime_display). The display hosting the IME window takes the
++        // input target of the other display; the shell controls the IME there (the app does
++        // not get IME insets for a keyboard on another screen).
++        if (imeInputTargetWindow != null && imeInputTargetWindow.getDisplayContent() != this
++                && mRemoteInsetsControlTarget != null) {
++            return mRemoteInsetsControlTarget;
++        }
+         if (!isImeControlledByApp() && mRemoteInsetsControlTarget != null
+                 || getImeHost(imeInputTargetWindow) == mRemoteInsetsControlTarget) {
+             return mRemoteInsetsControlTarget;
+diff --git a/services/core/java/com/android/server/wm/WindowManagerService.java b/services/core/java/com/android/server/wm/WindowManagerService.java
+--- a/services/core/java/com/android/server/wm/WindowManagerService.java
++++ b/services/core/java/com/android/server/wm/WindowManagerService.java
+@@ -8674,6 +8674,19 @@ public class WindowManagerService extends IWindowManager.Stub
+                             });
+                         }
+                     }
++
++                    // Ayaneo Pocket DS: the keyboard of the main screen can be shown on the
++                    // second screen (persist.sys.pocketds.ime_display). The display hosting it
++                    // takes the same IME input target, to get its show / hide requests, instead
++                    // of keeping its own (e.g. the second screen launcher), which would cancel
++                    // them: see DisplayContent#computeImeControlTarget.
++                    final int targetDisplayId = imeInputTarget.getDisplayContent().getDisplayId();
++                    mRoot.forAllDisplays(display -> {
++                        if (display.getDisplayId() != targetDisplayId
++                                && display.getImeWindow() != null) {
++                            display.updateImeInputAndControlTarget(imeInputTarget);
++                        }
++                    });
+                 }
+             }
+         }

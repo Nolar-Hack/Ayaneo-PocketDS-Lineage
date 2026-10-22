@@ -1,0 +1,27 @@
+Subject: [PATCH] AccessibilityInputFilter: key events are filtered whatever display they carry
+
+Ayaneo Pocket DS: the keys carry the focused display (the bottom screen when it has the focus), but
+the accessibility input filter only has a handler for the default display and, with
+ignoreInputEventsFromDisplayWithoutHandler, let every event of another display through unfiltered.
+Accessibility services therefore never saw the keys while the bottom screen had the focus: the M
+button of AYAHome (an accessibility service, key 190) did nothing then and worked with the focus on
+the main screen. Key events all go through the KeyboardInterceptor of the default display anyway
+(processKeyEvent), so they are no longer dropped for lack of a handler for their display.
+
+diff --git a/services/accessibility/java/com/android/server/accessibility/AccessibilityInputFilter.java b/services/accessibility/java/com/android/server/accessibility/AccessibilityInputFilter.java
+index f529b23f6..50f5096df 100644
+--- a/services/accessibility/java/com/android/server/accessibility/AccessibilityInputFilter.java
++++ b/services/accessibility/java/com/android/server/accessibility/AccessibilityInputFilter.java
+@@ -382,7 +382,12 @@ public class AccessibilityInputFilter extends InputFilter implements EventStream
+ 
+     private void onInputEventInternal(InputEvent event, int policyFlags) {
+         final int displayId = event.getDisplayId();
++        // Key events go through the KeyboardInterceptor of the default display whatever display
++        // they carry (processKeyEvent): only the other events are dropped for a display that has
++        // no handler. On the Pocket DS the keys carry the focused display, so with the focus on the
++        // bottom screen they skipped every accessibility service (the M button of AYAHome).
+         if (mEventHandler.size() == 0 || (Flags.ignoreInputEventsFromDisplayWithoutHandler()
++                && !(event instanceof KeyEvent)
+                 && displayId != Display.INVALID_DISPLAY && mEventHandler.get(displayId) == null)) {
+             if (DEBUG) Slog.d(TAG, "No mEventHandler for event " + event);
+             super.onInputEvent(event, policyFlags);

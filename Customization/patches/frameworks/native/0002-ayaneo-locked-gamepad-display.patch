@@ -1,0 +1,125 @@
+Subject: [PATCH] InputDispatcher: Ayaneo locked gamepad display
+
+Ayaneo Pocket DS controller focus lock (AYAHome Dual Screen panel): the gamepad
+and joystick events that do not target a display go to the locked display, set by
+the window manager (setLockedGamepadDisplay, see frameworks/base
+0003-ayaneo-dual-screen.patch), instead of the focused display. Touching the other
+screen moves the focus but not the controller. Same as the stock Ayaneo dispatcher.
+diff --git a/services/inputflinger/dispatcher/InputDispatcher.cpp b/services/inputflinger/dispatcher/InputDispatcher.cpp
+--- a/services/inputflinger/dispatcher/InputDispatcher.cpp
++++ b/services/inputflinger/dispatcher/InputDispatcher.cpp
+@@ -2383,15 +2383,18 @@ void InputDispatcher::resetNoFocusedWindowTimeoutLocked() {
+  */
+ ui::LogicalDisplayId InputDispatcher::getTargetDisplayId(const EventEntry& entry) {
+     ui::LogicalDisplayId displayId{ui::LogicalDisplayId::INVALID};
++    uint32_t source = AINPUT_SOURCE_UNKNOWN;
+     switch (entry.type) {
+         case EventEntry::Type::KEY: {
+             const KeyEntry& keyEntry = static_cast<const KeyEntry&>(entry);
+             displayId = keyEntry.displayId;
++            source = keyEntry.source;
+             break;
+         }
+         case EventEntry::Type::MOTION: {
+             const MotionEntry& motionEntry = static_cast<const MotionEntry&>(entry);
+             displayId = motionEntry.displayId;
++            source = motionEntry.source;
+             break;
+         }
+         case EventEntry::Type::TOUCH_MODE_CHANGED:
+@@ -2404,7 +2407,16 @@ ui::LogicalDisplayId InputDispatcher::getTargetDisplayId(const EventEntry& entry
+             return ui::LogicalDisplayId::INVALID;
+         }
+     }
+-    return displayId == ui::LogicalDisplayId::INVALID ? mFocusedDisplayId : displayId;
++    if (displayId != ui::LogicalDisplayId::INVALID) {
++        return displayId;
++    }
++    // Ayaneo Pocket DS: the gamepad stays on the locked display, wherever the user touched.
++    if (mLockedGamepadDisplayId != ui::LogicalDisplayId::INVALID &&
++        (isFromSource(source, AINPUT_SOURCE_GAMEPAD) ||
++         isFromSource(source, AINPUT_SOURCE_JOYSTICK))) {
++        return mLockedGamepadDisplayId;
++    }
++    return mFocusedDisplayId;
+ }
+ 
+ bool InputDispatcher::shouldWaitToSendKeyLocked(nsecs_t currentTime,
+@@ -5956,6 +5968,20 @@ void InputDispatcher::setFocusedDisplay(ui::LogicalDisplayId displayId) {
+     mLooper->wake();
+ }
+ 
++void InputDispatcher::setLockedGamepadDisplay(ui::LogicalDisplayId displayId) {
++    { // acquire lock
++        std::scoped_lock _l(mLock);
++        if (mLockedGamepadDisplayId == displayId) {
++            return;
++        }
++        LOG(INFO) << "setLockedGamepadDisplay displayId=" << displayId.toString();
++        mLockedGamepadDisplayId = displayId;
++    } // release lock
++
++    // Wake up poll loop since it may need to make new input dispatching choices.
++    mLooper->wake();
++}
++
+ void InputDispatcher::setInputDispatchMode(bool enabled, bool frozen) {
+     LOG_IF(INFO, DEBUG_FOCUS) << "setInputDispatchMode: enabled=" << enabled
+                               << ", frozen=" << frozen;
+@@ -6320,6 +6346,8 @@ void InputDispatcher::dumpDispatchStateLocked(std::string& dump) const {
+     dump += StringPrintf(INDENT "DispatchFrozen: %s\n", toString(mDispatchFrozen));
+     dump += StringPrintf(INDENT "InputFilterEnabled: %s\n", toString(mInputFilterEnabled));
+     dump += StringPrintf(INDENT "FocusedDisplayId: %s\n", mFocusedDisplayId.toString().c_str());
++    dump += StringPrintf(INDENT "LockedGamepadDisplayId: %s\n",
++                         mLockedGamepadDisplayId.toString().c_str());
+ 
+     if (!mFocusedApplicationHandlesByDisplay.empty()) {
+         dump += StringPrintf(INDENT "FocusedApplications:\n");
+diff --git a/services/inputflinger/dispatcher/InputDispatcher.h b/services/inputflinger/dispatcher/InputDispatcher.h
+--- a/services/inputflinger/dispatcher/InputDispatcher.h
++++ b/services/inputflinger/dispatcher/InputDispatcher.h
+@@ -122,6 +122,7 @@ public:
+             ui::LogicalDisplayId displayId,
+             const std::shared_ptr<InputApplicationHandle>& inputApplicationHandle) override;
+     void setFocusedDisplay(ui::LogicalDisplayId displayId) override;
++    void setLockedGamepadDisplay(ui::LogicalDisplayId displayId) override;
+     void setMinTimeBetweenUserActivityPokes(std::chrono::milliseconds interval) override;
+     void setInputDispatchMode(bool enabled, bool frozen) override;
+     void setInputFilterEnabled(bool enabled) override;
+@@ -699,6 +700,10 @@ private:
+     // Top focused display.
+     ui::LogicalDisplayId mFocusedDisplayId GUARDED_BY(mLock);
+ 
++    // Display receiving the gamepad events without a target display (Ayaneo controller focus
++    // lock), INVALID for the focused display.
++    ui::LogicalDisplayId mLockedGamepadDisplayId GUARDED_BY(mLock){ui::LogicalDisplayId::INVALID};
++
+     // Keeps track of the focused window per display and determines focus changes.
+     FocusResolver mFocusResolver GUARDED_BY(mLock);
+ 
+@@ -871,7 +876,7 @@ private:
+     // shade is pulled down while we are counting down the timeout).
+     void resetNoFocusedWindowTimeoutLocked() REQUIRES(mLock);
+ 
+-    ui::LogicalDisplayId getTargetDisplayId(const EventEntry& entry);
++    ui::LogicalDisplayId getTargetDisplayId(const EventEntry& entry) REQUIRES(mLock);
+     base::Result<sp<android::gui::WindowInfoHandle>, android::os::InputEventInjectionResult>
+     findFocusedWindowTargetLocked(nsecs_t currentTime, const EventEntry& entry,
+                                   nsecs_t& nextWakeupTime) REQUIRES(mLock);
+diff --git a/services/inputflinger/dispatcher/include/InputDispatcherInterface.h b/services/inputflinger/dispatcher/include/InputDispatcherInterface.h
+--- a/services/inputflinger/dispatcher/include/InputDispatcherInterface.h
++++ b/services/inputflinger/dispatcher/include/InputDispatcherInterface.h
+@@ -103,6 +103,13 @@ public:
+      */
+     virtual void setFocusedDisplay(ui::LogicalDisplayId displayId) = 0;
+ 
++    /**
++     * Ayaneo Pocket DS: display receiving the gamepad events that do not target a display, or
++     * INVALID to send them to the focused display like any key (default). Set by the window
++     * manager from the Ayaneo launcher "controller focus lock".
++     */
++    virtual void setLockedGamepadDisplay(ui::LogicalDisplayId /*displayId*/) {}
++
+     /** Sets the minimum time between user activity pokes. */
+     virtual void setMinTimeBetweenUserActivityPokes(std::chrono::milliseconds interval) = 0;
+ 

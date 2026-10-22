@@ -1,0 +1,28 @@
+Subject: [PATCH] AnrController: no "not responding" for an app without a focused window
+
+Ayaneo Pocket DS: with two screens and the controller focus lock, an app can be without a focused
+window for a moment: the focus is on the other screen, or an overlay window is being opened. That
+is not a hang. The input dispatcher drops the waiting events as soon as the user touches another
+app, so the "not responding" dialog (with Wait / Close) is not shown for this case.
+
+diff --git a/services/core/java/com/android/server/wm/AnrController.java b/services/core/java/com/android/server/wm/AnrController.java
+index dba2a1e70..9074cb71f 100644
+--- a/services/core/java/com/android/server/wm/AnrController.java
++++ b/services/core/java/com/android/server/wm/AnrController.java
+@@ -96,6 +96,16 @@ class AnrController {
+                     return;
+                 }
+ 
++                // Ayaneo Pocket DS: with two screens and the controller focus lock, an app can be
++                // without a focused window for a moment (the focus is on the other screen, an
++                // overlay is being opened). That is no hang: the input dispatcher drops the events
++                // when the user touches another app. No "not responding" dialog for it.
++                Slog.w(TAG_WM, "No focused window for " + applicationHandle.name
++                        + ": not reported as not responding");
++                if (true) {
++                    return;
++                }
++
+                 // App is unresponsive, but we are actively trying to give focus to a window.
+                 // Blame the window if possible since the window may not belong to the app.
+                 DisplayContent display = mService.mRoot.getDisplayContent(activity.getDisplayId());

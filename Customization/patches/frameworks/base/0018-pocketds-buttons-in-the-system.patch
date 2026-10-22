@@ -1,0 +1,111 @@
+Subject: [PATCH] PhoneWindowManager: the extra buttons of the Ayaneo Pocket DS are handled by the system
+
+The swap button (bottom left), the light blue AYA window button, the violet home button, the green
+profile button and the central button of the controller were handled by the AYAHome app (an
+accessibility service, hooked by PocketDS). They are now taken here, from "AYANEO DEVICE" and
+"AYANEO Controller", before any app: the key up swaps the screens (screen mode 1 only) or sends a
+broadcast to PocketDS Extra (same uid): TOGGLE_OVERLAY, SHOW_SECOND_HOME, NEXT_PROFILE,
+TOGGLE_PERF_OVERLAY. A long press (600 ms) of the swap button sends TOGGLE_FOCUS instead: the
+controller goes to the other screen. Nothing of the Ayaneo apps is needed any more for these
+buttons.
+
+diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.java b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+index c7fb11806..5547915f7 100644
+--- a/services/core/java/com/android/server/policy/PhoneWindowManager.java
++++ b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+@@ -4755,6 +4755,83 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+         mHandler.obtainMessage(MSG_DISPATCH_SHOW_RECENTS).sendToTarget();
+     }
+ 
++    // ---- Ayaneo Pocket DS buttons (swap, AYA window, home, profile, performance overlay)
++
++    private static final String POCKETDS_PACKAGE = "org.lineageos.pocketds.parts";
++    private static final int POCKETDS_KEY_SWAP = KeyEvent.KEYCODE_BUTTON_3;      // bottom left
++    private static final int POCKETDS_KEY_OVERLAY = KeyEvent.KEYCODE_BUTTON_6;   // light blue
++    private static final int POCKETDS_KEY_HOME = KeyEvent.KEYCODE_BUTTON_7;      // violet
++    private static final int POCKETDS_KEY_PROFILE = KeyEvent.KEYCODE_BUTTON_8;   // green
++    private static final long POCKETDS_LONG_PRESS_MS = 600;
++
++    /**
++     * The extra buttons of the console ("AYANEO DEVICE" and the central button of "AYANEO
++     * Controller"). The key down and up are taken (the apps never see them); the key up does the
++     * job: swap the screens, or ask PocketDS Extra (same uid) to show the overlay, the home of the
++     * bottom screen, the next performance profile or the performance overlay.
++     *
++     * @return true when the key was taken
++     */
++    private boolean interceptPocketDsKey(KeyEvent event) {
++        final int code = event.getKeyCode();
++        if (code != POCKETDS_KEY_SWAP && code != POCKETDS_KEY_OVERLAY
++                && code != POCKETDS_KEY_HOME && code != POCKETDS_KEY_PROFILE
++                && code != KeyEvent.KEYCODE_BUTTON_MODE) {
++            return false;
++        }
++        final android.view.InputDevice device = event.getDevice();
++        final String name = device == null ? null : device.getName();
++        if (name == null) return false;
++        if (code == KeyEvent.KEYCODE_BUTTON_MODE ? !name.startsWith("AYANEO Controller")
++                : !name.equals("AYANEO DEVICE")) {
++            return false;
++        }
++        if (event.getAction() != KeyEvent.ACTION_UP || event.isCanceled()) return true;
++        final String action;
++        // A long press of the swap button gives the controller to the other screen.
++        final boolean held = code == POCKETDS_KEY_SWAP
++                && event.getEventTime() - event.getDownTime() >= POCKETDS_LONG_PRESS_MS;
++        switch (code) {
++            case POCKETDS_KEY_SWAP:
++                action = held ? "org.lineageos.pocketds.parts.TOGGLE_FOCUS" : null;
++                break;
++            case POCKETDS_KEY_OVERLAY:
++                action = "org.lineageos.pocketds.parts.TOGGLE_OVERLAY";
++                break;
++            case POCKETDS_KEY_HOME:
++                action = "org.lineageos.pocketds.parts.SHOW_SECOND_HOME";
++                break;
++            case POCKETDS_KEY_PROFILE:
++                action = "org.lineageos.pocketds.parts.NEXT_PROFILE";
++                break;
++            case KeyEvent.KEYCODE_BUTTON_MODE:
++                action = "org.lineageos.pocketds.parts.TOGGLE_PERF_OVERLAY";
++                break;
++            default:
++                action = null;
++        }
++        mHandler.post(() -> {
++            if (action == null) {
++                togglePocketDsSwap();
++            } else {
++                mContext.sendBroadcastAsUser(new Intent(action).setPackage(POCKETDS_PACKAGE),
++                        UserHandle.CURRENT);
++            }
++        });
++        return true;
++    }
++
++    /** Swaps the two screens (or puts them back), only while both are in use (screen mode 1). */
++    private void togglePocketDsSwap() {
++        final ContentResolver resolver = mContext.getContentResolver();
++        final String mode = Settings.Global.getString(resolver, "dual_display_mode");
++        if (mode != null && !mode.isEmpty() && !"1".equals(mode)) {
++            return;
++        }
++        Settings.Global.putInt(resolver, "dual_display_swap",
++                1 - Settings.Global.getInt(resolver, "dual_display_swap", 0));
++    }
++
+     private void showRecentApps(boolean triggeredFromAltTab) {
+         mPreloadedRecentApps = false; // preloading no longer needs to be canceled
+         StatusBarManagerInternal statusbar = getStatusBarManagerInternal();
+@@ -5044,6 +5121,11 @@ public class PhoneWindowManager implements WindowManagerPolicy {
+         final boolean isInjected = (policyFlags & WindowManagerPolicy.FLAG_INJECTED) != 0;
+         final boolean longPress = (event.getFlags() & KeyEvent.FLAG_LONG_PRESS) != 0;
+ 
++        // Ayaneo Pocket DS: the extra buttons of the console belong to the system, not to an app.
++        if (interactive && interceptPocketDsKey(event)) {
++            return 0;
++        }
++
+         // If screen is off then we treat the case where the keyguard is open but hidden
+         // the same as if it were open and in front.
+         // This will prevent any keys other than the power button from waking the screen

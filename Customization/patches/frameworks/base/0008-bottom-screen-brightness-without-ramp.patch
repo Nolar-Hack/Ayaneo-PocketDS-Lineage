@@ -1,0 +1,22 @@
+Subject: [PATCH] DisplayPowerController: no brightness ramp on the Ayaneo bottom screen
+
+Ayaneo Pocket DS: the slider of AYAHome for the bottom screen writes the backlight directly and
+also sets secondary_screen_brightness, which PocketDS Parts applies with DisplayManager. The
+display power controller then animated the brightness (fast ramp: about a second end to end)
+while the slider had already moved it, so the bottom screen lagged behind the slider, unlike the
+top screen whose slider sets one target only. The bottom screen is now set at once.
+
+diff --git a/services/core/java/com/android/server/display/DisplayPowerController.java b/services/core/java/com/android/server/display/DisplayPowerController.java
+index f839a319d..3a6d82730 100644
+--- a/services/core/java/com/android/server/display/DisplayPowerController.java
++++ b/services/core/java/com/android/server/display/DisplayPowerController.java
+@@ -1574,7 +1574,8 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
+                     && (animateValue != currentBrightness
+                     || sdrAnimateValue != currentSdrBrightness)) {
+                 boolean skipAnimation = initialRampSkip || hasBrightnessBuckets
+-                        || !isDisplayContentVisible || brightnessIsTemporary;
++                        || !isDisplayContentVisible || brightnessIsTemporary
++                        || AyaneoDualScreenController.isSecondaryScreen(mUniqueDisplayId);
+                 final boolean isHdrOnlyChange = BrightnessSynchronizer.floatEquals(
+                         sdrAnimateValue, currentSdrBrightness);
+                 if (mFlags.isFastHdrTransitionsEnabled() && !skipAnimation && isHdrOnlyChange) {

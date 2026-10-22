@@ -1,0 +1,2 @@
+# init.pocketds.fan.sh power-cycles the fan rail
+allow vendor_qti_init_shell sysfs_fan:file w_file_perms;

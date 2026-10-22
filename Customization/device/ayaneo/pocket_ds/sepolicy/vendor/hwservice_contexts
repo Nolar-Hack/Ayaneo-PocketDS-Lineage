@@ -1,0 +1,2 @@
+vendor.focaltech.hardware.biometrics.fingerprint::IFocalFingerprint    u:object_r:ff_hwservice:s0
+vendor.thundercomm.hardware.tsnv::ITsnv                                u:object_r:hal_tsnv_hwservice:s0

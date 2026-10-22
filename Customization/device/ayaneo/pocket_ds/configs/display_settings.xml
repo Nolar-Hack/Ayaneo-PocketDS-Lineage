@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<!-- Default per-display window settings (users can still change them):
+     - main 7" screen: density 288 (panel density is 360) for more content on screen;
+       landscape, rotation locked and fixed (fixedToUserRotation 2: apps asking for
+       another orientation, like AYAHome's sensor orientations, are letterboxed instead
+       of turning the panel; a handheld held in landscape)
+     - second 5" screen (panel mounted in portrait): landscape, rotation locked and fixed
+       to 270 (Surface.ROTATION_270, userRotationMode 1 = locked, fixedToUserRotation 2),
+       also when it becomes the default display in the bottom-screen-only mode;
+       density 288 as well; keyboard allowed on it (imePolicy 0 = local: an own-content
+       display has none by default, see PocketDS Parts / ime-on-second-screen patch);
+       home on it, as on stock: AYAHome shows its bottom screen launcher there
+       (SECONDARY_HOME). No system decorations (status / navigation bars): stock has
+       none there, and with them Android 17 no longer shows the keyboard or the USB
+       debugging prompt of the main screen -->
+<display-settings>
+    <config identifier="0" />
+    <display name="local:4630946412288502659" userRotationMode="1" userRotation="0" fixedToUserRotation="2" forcedDensity="288" />
+    <display name="local:4630946708815090308" userRotationMode="1" userRotation="3" fixedToUserRotation="2" forcedDensity="288" imePolicy="0" isHomeSupported="true" />
+</display-settings>

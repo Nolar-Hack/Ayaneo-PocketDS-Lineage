@@ -1,0 +1,38 @@
+Subject: [PATCH] Ayaneo Pocket DS: the home of the second screen can come from PocketDS Extra
+
+The menu that AYAHome shows on the bottom screen at rest (tabs Dual-Screen / Application / Task /
+Control) is replaced by the home activity of PocketDS Extra (a list of applications that asks on
+which screen to open the app, or an empty screen). Settings.Global pocketds_second_home: 1 (default)
+PocketDS Extra, 0 the AYAHome menu. If PocketDS Extra has no such activity the usual resolution
+applies.
+
+diff --git a/services/core/java/com/android/server/wm/RootWindowContainer.java b/services/core/java/com/android/server/wm/RootWindowContainer.java
+index cae7d35ce..3acb466dc 100644
+--- a/services/core/java/com/android/server/wm/RootWindowContainer.java
++++ b/services/core/java/com/android/server/wm/RootWindowContainer.java
+@@ -1682,6 +1682,25 @@ class RootWindowContainer extends WindowContainer<DisplayContent>
+             }
+         }
+ 
++        // Ayaneo Pocket DS: the home of the second screen can be the one of PocketDS Extra (list of
++        // applications, or an empty screen) instead of the menu of AYAHome, see
++        // Settings.Global pocketds_second_home (1, the default, or 0 for the AYAHome menu).
++        if (customHomeComponent == null && "AR11".equals(
++                SystemProperties.get("ro.product.device.type"))
++                && Settings.Global.getInt(mService.mContext.getContentResolver(),
++                        "pocketds_second_home", 1) == 1) {
++            // Not getSecondaryHomeIntent(): with config_useSystemProvidedLauncherForSecondary (set
++            // for this device) it ignores the package it is given.
++            final Intent ownIntent = new Intent(Intent.ACTION_MAIN)
++                    .addCategory(Intent.CATEGORY_SECONDARY_HOME)
++                    .setPackage("org.lineageos.pocketds.parts");
++            final List<ResolveInfo> own = resolveActivities(userId, ownIntent);
++            if (!own.isEmpty() && canStartHomeOnDisplayArea(own.get(0).activityInfo,
++                    taskDisplayArea, false /* allowInstrumenting */)) {
++                return Pair.create(own.get(0).activityInfo, ownIntent);
++            }
++        }
++
+         if (lookForSecondaryHomeActivityInPrimaryHomePackage) {
+             // Resolve activities in the same package as currently selected primary home activity.
+             if (ResolverActivity.class.getName().equals(aInfo.name)) {

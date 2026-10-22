@@ -1,0 +1,137 @@
+Subject: [PATCH] SystemProperties: Ayaneo per-game property hooker
+
+Same behaviour and property names as the stock Ayaneo Pocket DS framework, so the
+Ayaneo apps can spoof the device / SoC / Android version per game.
+
+--- a/core/java/android/os/SystemProperties.java
++++ b/core/java/android/os/SystemProperties.java
+@@ -37,6 +37,7 @@
+ import java.util.ArrayList;
+ import java.util.Arrays;
+ import java.util.HashMap;
++import java.util.List;
+ 
+ /**
+  * Gives access to the system properties store.  The system properties
+@@ -148,7 +149,8 @@
+     @SystemApi
+     public static String get(@NonNull String key) {
+         if (TRACK_KEY_ACCESS) onKeyAccess(key);
+-        return native_get(key);
++        final String hooked = getHookValue(key);
++        return hooked != null ? hooked : native_get(key);
+     }
+ 
+     /**
+@@ -164,7 +166,8 @@
+     @SystemApi
+     public static String get(@NonNull String key, @Nullable String def) {
+         if (TRACK_KEY_ACCESS) onKeyAccess(key);
+-        return native_get(key, def);
++        final String hooked = getHookValue(key);
++        return hooked != null ? hooked : native_get(key, def);
+     }
+ 
+     /**
+@@ -228,6 +231,9 @@
+      */
+     @UnsupportedAppUsage
+     public static void set(@NonNull String key, @Nullable String val) {
++        if (HOOK_VALUES.equals(key) && val != null) {
++            val = setHookValues(val);
++        }
+         if (val != null && !key.startsWith("ro.") && val.getBytes(StandardCharsets.UTF_8).length
+                 > PROP_VALUE_MAX) {
+             throw new IllegalArgumentException("value of system property '" + key
+@@ -237,6 +243,91 @@
+         native_set(key, val);
+     }
+ 
++    // Ayaneo Pocket DS: per-game property spoofing, same behaviour and property names as the
++    // stock Ayaneo framework (driven by the Ayaneo apps when they launch a game). While
++    // persist.sys.system.property.hooker.enabled is 1, the properties below read as the
++    // comma-separated persist.sys.system.property.hooker.values (same order; split in
++    // PROP_VALUE_MAX chunks values, values1, values2... counted by values.length), and the
++    // SoC model as persist.sys.soc.model when set.
++    private static final String HOOK_ENABLED = "persist.sys.system.property.hooker.enabled";
++    private static final String HOOK_VALUES = "persist.sys.system.property.hooker.values";
++    private static final String HOOK_VALUES_LENGTH = HOOK_VALUES + ".length";
++    private static final String HOOK_SOC_MODEL = "persist.sys.soc.model";
++    private static final List<String> HOOKED_PROPERTIES = Arrays.asList(
++            "ro.product.manufacturer", "ro.product.model", "ro.product.brand",
++            "ro.product.board", "ro.product.device", "ro.hardware", "ro.board.platform",
++            "ro.product.name", "ro.build.version.release", "ro.build.version.sdk");
++    private static final int HOOK_RELEASE = HOOKED_PROPERTIES.indexOf("ro.build.version.release");
++    private static final int HOOK_SDK = HOOKED_PROPERTIES.indexOf("ro.build.version.sdk");
++    // Parsed once per process, like the stock framework (which did it at class init).
++    private static volatile List<String> sHookValues;
++
++    @Nullable
++    private static String getHookValue(@NonNull String key) {
++        if ("ro.build.characteristics".equals(key)) {
++            // Stock quirk kept: Tencent Video (qqlive) is served the tablet layout.
++            for (StackTraceElement element : Thread.currentThread().getStackTrace()) {
++                if (element.getClassName().toLowerCase(java.util.Locale.US).contains("qqlive")) {
++                    return "tablet";
++                }
++            }
++            return null;
++        }
++        final int index = HOOKED_PROPERTIES.indexOf(key);
++        final boolean release = index < 0 && key.startsWith("ro.build.version.release");
++        final boolean sdk = index < 0 && (key.endsWith("build.version.sdk")
++                || key.endsWith("api_level"));
++        final boolean soc = "ro.soc.model".equals(key) || "ro.vendor.qti.soc_model".equals(key);
++        if (index < 0 && !release && !sdk && !soc) {
++            return null;
++        }
++        if (!"1".equals(native_get(HOOK_ENABLED, ""))) {
++            return null;
++        }
++        if (soc) {
++            final String model = native_get(HOOK_SOC_MODEL, "");
++            return model.isEmpty() ? null : model;
++        }
++        final List<String> values = getHookValues();
++        if (values.size() != HOOKED_PROPERTIES.size()) {
++            return null;
++        }
++        return values.get(index >= 0 ? index : (release ? HOOK_RELEASE : HOOK_SDK));
++    }
++
++    @NonNull
++    private static List<String> getHookValues() {
++        List<String> values = sHookValues;
++        if (values == null) {
++            int chunks = 1;
++            try {
++                chunks = Integer.parseInt(native_get(HOOK_VALUES_LENGTH, "1"));
++            } catch (NumberFormatException e) {
++                // single chunk
++            }
++            final StringBuilder joined = new StringBuilder(native_get(HOOK_VALUES, ""));
++            for (int i = 1; i < chunks; i++) {
++                joined.append(native_get(HOOK_VALUES + i, ""));
++            }
++            values = joined.length() > 0
++                    ? Arrays.asList(joined.toString().split(",")) : new ArrayList<>();
++            sHookValues = values;
++        }
++        return values;
++    }
++
++    /** Stores the chunks after the first one, returns the first one to set as the value. */
++    @NonNull
++    private static String setHookValues(@NonNull String val) {
++        final int chunks = Math.max(1, (val.length() + PROP_VALUE_MAX - 1) / PROP_VALUE_MAX);
++        native_set(HOOK_VALUES_LENGTH, Integer.toString(chunks));
++        for (int i = 1; i < chunks; i++) {
++            native_set(HOOK_VALUES + i, val.substring(i * PROP_VALUE_MAX,
++                    Math.min(val.length(), (i + 1) * PROP_VALUE_MAX)));
++        }
++        return val.substring(0, Math.min(val.length(), PROP_VALUE_MAX));
++    }
++
+     /**
+      * Add a callback that will be run whenever any system property changes.
+      *

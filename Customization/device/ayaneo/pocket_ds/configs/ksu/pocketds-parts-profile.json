@@ -1,0 +1,16 @@
+{
+  "key": "org.lineageos.pocketds.parts",
+  "uid": 1000,
+  "stored": true,
+  "allow_su": true,
+  "root": {
+    "use_default": true,
+    "uid": 0,
+    "gid": 0,
+    "groups": [],
+    "capabilities": [],
+    "selinux_domain": "u:r:ksu:s0",
+    "namespace": "inherited",
+    "flags": ["NO_NEW_PRIVS"]
+  }
+}

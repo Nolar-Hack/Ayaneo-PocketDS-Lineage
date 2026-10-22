@@ -1,0 +1,4 @@
+r_dir_file(system_server, securityfs)
+
+# Ayaneo screen modes (frameworks/base AyaneoDualScreenController): bottom touch reports
+allow system_server sysfs_touchpanel:file rw_file_perms;

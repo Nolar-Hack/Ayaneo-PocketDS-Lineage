@@ -1,0 +1,152 @@
+Subject: [PATCH] Ayaneo Pocket DS: swap the two screens, both staying on
+
+Settings.Global dual_display_swap = 1 (set by the M button of AYAHome, see MKey) makes the
+bottom panel the default display while the top panel stays on as the second display. Apps see
+the swap and need no setting of their own (DS / 3DS emulators for instance). Only in screen
+mode 1 (both screens); the stock "bottom screen only" mode is unchanged.
+
+diff --git a/services/core/java/com/android/server/display/AyaneoDualScreenController.java b/services/core/java/com/android/server/display/AyaneoDualScreenController.java
+index ea10bd289..062d58627 100644
+--- a/services/core/java/com/android/server/display/AyaneoDualScreenController.java
++++ b/services/core/java/com/android/server/display/AyaneoDualScreenController.java
+@@ -50,6 +50,9 @@ import java.util.List;
+  * <li>{@code dual_display_mode} 4: bottom screen only. The bottom panel becomes the default
+  *     display and the top panel is turned off.
+  * </ul>
++ * {@code dual_display_swap} 1 (not a stock setting, set by the M button of AYAHome through
++ * MKey) swaps the two screens while both stay on: the bottom panel is the default display, the
++ * top panel the second one. It only applies in mode 1.
+  * Modes 0 (mirroring) and 2 also exist in the stock framework, but AYAHome never selects them;
+  * they are handled as mode 1. The applied values are mirrored into persist.tc.* properties,
+  * which the stock framework and AYAHome read back.
+@@ -70,6 +73,7 @@ final class AyaneoDualScreenController {
+ 
+     private static final String SETTING_MODE = "dual_display_mode";
+     private static final String SETTING_POINTER_MODE = "dual_display_pointer_mode";
++    private static final String SETTING_SWAP = "dual_display_swap";
+     private static final String PROP_MODE = "persist.tc.dual_display_mode";
+     private static final String PROP_POINTER_MODE = "persist.tc.dual_display_pointer_mode";
+ 
+@@ -93,7 +97,7 @@ final class AyaneoDualScreenController {
+          * Called with the display sync root held after a mode change: lays out the logical
+          * displays and returns the runnables that apply the panel power states.
+          */
+-        List<Runnable> applyModeLocked(boolean secondaryOnly);
++        List<Runnable> applyModeLocked(boolean secondaryOnly, boolean swapped);
+     }
+ 
+     private final Context mContext;
+@@ -102,6 +106,7 @@ final class AyaneoDualScreenController {
+     private final Callbacks mCallbacks;
+     private String mAppliedMode = "";
+     private String mAppliedPointerMode = "";
++    private boolean mAppliedSwap;
+ 
+     static boolean isSupported() {
+         return "AR11".equals(SystemProperties.get("ro.product.device.type"));
+@@ -143,6 +148,8 @@ final class AyaneoDualScreenController {
+         mContext.getContentResolver().registerContentObserver(
+                 Settings.Global.getUriFor(SETTING_POINTER_MODE), false, observer,
+                 UserHandle.USER_ALL);
++        mContext.getContentResolver().registerContentObserver(
++                Settings.Global.getUriFor(SETTING_SWAP), false, observer, UserHandle.USER_ALL);
+         mHandler.post(this::apply);
+         registerLidHallSensor();
+     }
+@@ -235,18 +242,23 @@ final class AyaneoDualScreenController {
+         if (!"1".equals(pointerMode) && !"2".equals(pointerMode)) {
+             pointerMode = "0";
+         }
+-        if (mode.equals(mAppliedMode) && pointerMode.equals(mAppliedPointerMode)) {
++        // Swapping the screens only makes sense while both are used.
++        final boolean swapped = MODE_DUAL.equals(mode)
++                && Settings.Global.getInt(mContext.getContentResolver(), SETTING_SWAP, 0) == 1;
++        if (mode.equals(mAppliedMode) && pointerMode.equals(mAppliedPointerMode)
++                && swapped == mAppliedSwap) {
+             return;
+         }
+         Slog.i(TAG, "dual_display_mode " + mAppliedMode + " -> " + mode
+-                + ", pointer mode " + mAppliedPointerMode + " -> " + pointerMode);
++                + ", pointer mode " + mAppliedPointerMode + " -> " + pointerMode
++                + ", swapped " + mAppliedSwap + " -> " + swapped);
+         persist(PROP_MODE, mode);
+         persist(PROP_POINTER_MODE, pointerMode);
+ 
+         final List<Runnable> panelUpdates;
+         synchronized (mLock) {
+             sMode = mode;
+-            panelUpdates = mCallbacks.applyModeLocked(MODE_SECONDARY_ONLY.equals(mode));
++            panelUpdates = mCallbacks.applyModeLocked(MODE_SECONDARY_ONLY.equals(mode), swapped);
+         }
+         for (Runnable update : panelUpdates) {
+             update.run();
+@@ -261,6 +273,7 @@ final class AyaneoDualScreenController {
+ 
+         mAppliedMode = mode;
+         mAppliedPointerMode = pointerMode;
++        mAppliedSwap = swapped;
+     }
+ 
+     private static void writeNode(String path, String value) {
+diff --git a/services/core/java/com/android/server/display/LogicalDisplayMapper.java b/services/core/java/com/android/server/display/LogicalDisplayMapper.java
+index 84f6899b5..11c95d524 100644
+--- a/services/core/java/com/android/server/display/LogicalDisplayMapper.java
++++ b/services/core/java/com/android/server/display/LogicalDisplayMapper.java
+@@ -140,6 +140,8 @@ class LogicalDisplayMapper implements DisplayDeviceRepository.Listener {
+ 
+     /** Ayaneo Pocket DS "bottom screen only" mode, see {@link #setAyaneoSecondaryOnlyLocked}. */
+     private boolean mAyaneoSecondaryOnly;
++    /** Ayaneo Pocket DS swapped screens: both panels on, the bottom one is the default display. */
++    private boolean mAyaneoSwapped;
+ 
+     /**
+      * True if the device can have more than one internal display on at a time.
+@@ -1416,17 +1418,20 @@ class LogicalDisplayMapper implements DisplayDeviceRepository.Listener {
+         }
+ 
+         // The layout always puts the default display back on the top panel.
+-        if (mAyaneoSecondaryOnly) {
++        if (mAyaneoSecondaryOnly || mAyaneoSwapped) {
+             applyAyaneoSecondaryOnlyLocked();
+         }
+     }
+ 
+     /**
+      * Ayaneo Pocket DS "bottom screen only" mode (see {@link AyaneoDualScreenController}): the
+-     * bottom panel becomes the default display and the other built-in panel is disabled.
++     * bottom panel becomes the default display and the other built-in panel is disabled. With
++     * {@code swapped} (screens swapped, both on) the bottom panel is the default display too but
++     * the top panel stays enabled as the second display.
+      */
+-    void setAyaneoSecondaryOnlyLocked(boolean secondaryOnly) {
++    void setAyaneoSecondaryOnlyLocked(boolean secondaryOnly, boolean swapped) {
+         mAyaneoSecondaryOnly = secondaryOnly;
++        mAyaneoSwapped = swapped;
+         if (applyAyaneoSecondaryOnlyLocked()) {
+             updateLogicalDisplaysLocked();
+         }
+@@ -1437,7 +1442,7 @@ class LogicalDisplayMapper implements DisplayDeviceRepository.Listener {
+         if (defaultDisplay == null) {
+             return false;
+         }
+-        final String wanted = mAyaneoSecondaryOnly
++        final String wanted = (mAyaneoSecondaryOnly || mAyaneoSwapped)
+                 ? AyaneoDualScreenController.SECONDARY_UNIQUE_ID
+                 : AyaneoDualScreenController.MAIN_UNIQUE_ID;
+         boolean changed = false;
+diff --git a/services/core/java/com/android/server/display/DisplayManagerService.java b/services/core/java/com/android/server/display/DisplayManagerService.java
+index f38eabec0..1e0963d9f 100644
+--- a/services/core/java/com/android/server/display/DisplayManagerService.java
++++ b/services/core/java/com/android/server/display/DisplayManagerService.java
+@@ -2922,8 +2922,9 @@ public final class DisplayManagerService extends SystemService {
+ 
+     // Ayaneo Pocket DS screen mode change: moves the default display, then re-applies the panel
+     // power states (a panel hidden by the mode is kept off by LocalDisplayDevice).
+-    private List<Runnable> applyAyaneoDualScreenModeLocked(boolean secondaryOnly) {
+-        mLogicalDisplayMapper.setAyaneoSecondaryOnlyLocked(secondaryOnly);
++    private List<Runnable> applyAyaneoDualScreenModeLocked(boolean secondaryOnly,
++            boolean swapped) {
++        mLogicalDisplayMapper.setAyaneoSecondaryOnlyLocked(secondaryOnly, swapped);
+         final List<Runnable> panelUpdates = new ArrayList<>();
+         mDisplayDeviceRepo.forEachLocked((DisplayDevice device) -> {
+             final Runnable update;

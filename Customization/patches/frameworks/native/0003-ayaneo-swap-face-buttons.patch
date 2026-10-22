@@ -1,0 +1,65 @@
+Subject: [PATCH] inputflinger: remap the buttons of the Ayaneo Pocket DS, swap A/B and X/Y
+
+persist.sys.pocketds.keymap ("scancode:keycode,...", set by the PocketDS Extra overlay, page
+Controller) gives a physical button of the built-in controller or of the console another Android
+key code (0 disables it), for every app, with no reboot. persist.sys.pocketds.swap_ab and
+persist.sys.pocketds.swap_xy exchange BUTTON_A / BUTTON_B and BUTTON_X / BUTTON_Y of the controller.
+The key up reuses the key code recorded at the key down.
+
+diff --git a/services/inputflinger/reader/mapper/KeyboardInputMapper.cpp b/services/inputflinger/reader/mapper/KeyboardInputMapper.cpp
+index c40dd22..d170125 100644
+--- a/services/inputflinger/reader/mapper/KeyboardInputMapper.cpp
++++ b/services/inputflinger/reader/mapper/KeyboardInputMapper.cpp
+@@ -20,6 +20,7 @@
+ 
+ #include "KeyboardInputMapper.h"
+ 
++#include <android-base/properties.h>
+ #include <ftl/enum.h>
+ #include <input/KeyboardClassifier.h>
+ #include <ui/Rotation.h>
+@@ -301,6 +302,44 @@ std::list<NotifyArgs> KeyboardInputMapper::processKey(nsecs_t when, nsecs_t read
+         policyFlags = 0;
+     }
+ 
++    // Ayaneo Pocket DS: the buttons of the built-in controller and of the console can be changed
++    // from the PocketDS Extra overlay, for every app, with no reboot:
++    //  - persist.sys.pocketds.keymap, "scancode:keycode,scancode:keycode...": the physical button
++    //    (its evdev scan code) gives another Android key code (0 = disabled);
++    //  - persist.sys.pocketds.swap_ab / swap_xy: A with B, X with Y (controller only).
++    // The key up uses the key code recorded at the key down, so a change made while a button is
++    // held stays consistent.
++    if (getDeviceName().rfind("AYANEO", 0) == 0) {
++        const std::string keymap = base::GetProperty("persist.sys.pocketds.keymap", "");
++        if (!keymap.empty()) {
++            size_t pos = 0;
++            while (pos < keymap.size()) {
++                size_t end = keymap.find(',', pos);
++                if (end == std::string::npos) end = keymap.size();
++                const std::string pair = keymap.substr(pos, end - pos);
++                const size_t colon = pair.find(':');
++                if (colon != std::string::npos &&
++                    atoi(pair.substr(0, colon).c_str()) == scanCode) {
++                    keyCode = atoi(pair.substr(colon + 1).c_str());
++                    break;
++                }
++                pos = end + 1;
++            }
++        }
++    }
++    if (getDeviceName().rfind("AYANEO Controller", 0) == 0) {
++        const bool swapAb = base::GetBoolProperty("persist.sys.pocketds.swap_ab", false);
++        const bool swapXy = base::GetBoolProperty("persist.sys.pocketds.swap_xy", false);
++        if (swapAb) {
++            if (keyCode == AKEYCODE_BUTTON_A) keyCode = AKEYCODE_BUTTON_B;
++            else if (keyCode == AKEYCODE_BUTTON_B) keyCode = AKEYCODE_BUTTON_A;
++        }
++        if (swapXy) {
++            if (keyCode == AKEYCODE_BUTTON_X) keyCode = AKEYCODE_BUTTON_Y;
++            else if (keyCode == AKEYCODE_BUTTON_Y) keyCode = AKEYCODE_BUTTON_X;
++        }
++    }
++
+     nsecs_t downTime = when;
+     std::optional<size_t> keyDownIndex = findKeyDownIndex(scanCode);
+     if (down) {

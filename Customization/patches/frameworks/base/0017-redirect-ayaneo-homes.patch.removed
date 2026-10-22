@@ -1,0 +1,85 @@
+Subject: [PATCH] Ayaneo Pocket DS: redirect the AYAHome homes to the ones of PocketDS Extra
+
+AYAHome has two homes: the desktop of the main screen (LauncherActivity) and the menu of the
+second screen (SecondaryLauncherActivity, which also starts itself besides the home that the
+system picks). Settings.Global pocketds_second_home and pocketds_main_home (both 1 by default)
+make every start of them go to the homes of PocketDS Extra instead: a list of applications that
+asks on which screen to open each one below, only the wallpaper above. With 0 nothing is
+redirected (the original AYAHome).
+
+diff --git a/services/core/java/com/android/server/wm/ActivityStartInterceptor.java b/services/core/java/com/android/server/wm/ActivityStartInterceptor.java
+index 66a973e31..94bf17800 100644
+--- a/services/core/java/com/android/server/wm/ActivityStartInterceptor.java
++++ b/services/core/java/com/android/server/wm/ActivityStartInterceptor.java
+@@ -66,6 +66,7 @@ import android.os.IBinder;
+ import android.os.RemoteException;
+ import android.os.UserHandle;
+ import android.os.UserManager;
++import android.os.SystemProperties;
+ import android.provider.Settings;
+ import android.util.Pair;
+ import android.util.Slog;
+@@ -273,6 +274,10 @@ class ActivityStartInterceptor {
+         if (interceptLockedProfileIfNeeded()) {
+             return true;
+         }
++        if (interceptAyaneoHomesIfNeeded()) {
++            // The AYAHome homes are replaced by the ones of PocketDS Extra.
++            return true;
++        }
+         if (interceptHomeIfNeeded()) {
+             // Replace primary home intents directed at displays that do not support primary home
+             // but support secondary home with the relevant secondary home activity. Or the home
+@@ -643,6 +648,52 @@ class ActivityStartInterceptor {
+         return true;
+     }
+ 
++    /**
++     * Ayaneo Pocket DS: the two homes of AYAHome, the desktop of the main screen
++     * (LauncherActivity) and the menu of the second screen (SecondaryLauncherActivity, which also
++     * starts itself), can be replaced by the homes of PocketDS Extra: a list of applications
++     * below, only the wallpaper above. Settings.Global pocketds_second_home / pocketds_main_home
++     * (both 1 by default, 0 keeps the AYAHome one): every start of the AYAHome home is then
++     * redirected to the one of PocketDS Extra.
++     */
++    private boolean interceptAyaneoHomesIfNeeded() {
++        final ComponentName component = mIntent.getComponent();
++        if (component == null || !"com.ayaneo.home".equals(component.getPackageName())
++                || !"AR11".equals(SystemProperties.get("ro.product.device.type"))) {
++            return false;
++        }
++        final android.content.ContentResolver resolver = mServiceContext.getContentResolver();
++        final String target;
++        if (component.getClassName().endsWith(".SecondaryLauncherActivity")) {
++            if (Settings.Global.getInt(resolver, "pocketds_second_home", 1) != 1) return false;
++            target = "org.lineageos.pocketds.parts.SecondHomeActivity";
++        } else if ("com.ayaneo.home.ui.main.LauncherActivity".equals(component.getClassName())
++                && mIntent.hasCategory(Intent.CATEGORY_HOME)) {
++            // Only while both screens are on: the list of applications is on the second one.
++            if (Settings.Global.getInt(resolver, "pocketds_main_home", 1) != 1
++                    || Settings.Global.getInt(resolver, "dual_display_mode", 1) != 1) {
++                return false;
++            }
++            target = "org.lineageos.pocketds.parts.MainHomeActivity";
++        } else {
++            return false;
++        }
++        final Intent own = new Intent(mIntent);
++        own.setPackage(null);
++        own.setComponent(new ComponentName("org.lineageos.pocketds.parts", target));
++        final ResolveInfo ownInfo = mSupervisor.resolveIntent(own, null /* resolvedType */,
++                mUserId, 0, mRealCallingUid, mRealCallingPid);
++        if (ownInfo == null) {
++            // PocketDS Extra is not there: the AYAHome home stays.
++            return false;
++        }
++        mIntent = own;
++        mResolvedType = null;
++        mRInfo = ownInfo;
++        mAInfo = mSupervisor.resolveActivity(mIntent, mRInfo, mStartFlags, null /*profilerInfo*/);
++        return true;
++    }
++
+     private boolean interceptHomeIfNeeded() {
+         if (mPresumableLaunchDisplayArea == null || mService.mRootWindowContainer == null) {
+             return false;

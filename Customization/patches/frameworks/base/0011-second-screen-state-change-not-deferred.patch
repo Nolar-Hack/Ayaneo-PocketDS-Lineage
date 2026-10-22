@@ -1,0 +1,56 @@
+diff --git a/services/core/java/com/android/server/wm/DeferredDisplayUpdater.java b/services/core/java/com/android/server/wm/DeferredDisplayUpdater.java
+index 21768c8e3..f7819f105 100644
+--- a/services/core/java/com/android/server/wm/DeferredDisplayUpdater.java
++++ b/services/core/java/com/android/server/wm/DeferredDisplayUpdater.java
+@@ -16,6 +16,7 @@
+ 
+ package com.android.server.wm;
+ 
++import static android.view.Display.DEFAULT_DISPLAY;
+ import static android.view.Display.INVALID_DISPLAY;
+ import static android.view.WindowManager.TRANSIT_CHANGE;
+ import static android.view.WindowManager.TRANSIT_FLAG_DISPLAY_LEVEL_TRANSITION;
+@@ -172,6 +173,8 @@ class DeferredDisplayUpdater {
+         final DisplayInfo displayInfo = getCurrentDisplayInfo();
+ 
+         final int displayInfoDiff = calculateDisplayInfoDiff(mLastDisplayInfo, displayInfo);
++        final boolean stateOnlyUpdate = isSecondaryDisplayStateOnlyUpdate(mLastDisplayInfo,
++                displayInfo);
+         final boolean physicalDisplayUpdated = isPhysicalDisplayUpdated(mLastDisplayInfo,
+                 displayInfo);
+ 
+@@ -181,7 +184,13 @@ class DeferredDisplayUpdater {
+         // * it is the first display update
+         // * the display doesn't have visible content
+         // * shell transitions are disabled or temporary unavailable
++        // * only the on / off state of a secondary display changed: this display change must not
++        //   wait for another transition. Waking up with a biometric starts the keyguard
++        //   going-away transition before the second screen is on, and that transition waits for
++        //   the activity of the second screen, which only resumes once its state is applied:
++        //   both would wait for each other until the 5 s timeout of the sync group.
+         if (displayInfoDiff == DIFF_EVERYTHING
++                || stateOnlyUpdate
+                 || !mDisplayContent.getLastHasContent()
+                 || !mDisplayContent.mTransitionController.isShellTransitionsEnabled()) {
+             ProtoLog.d(WM_DEBUG_WINDOW_TRANSITIONS_MIN,
+@@ -226,6 +235,20 @@ class DeferredDisplayUpdater {
+         }
+     }
+ 
++    /** Whether the on / off state is the only deferrable change, on a display that is not the
++     * default one. */
++    private boolean isSecondaryDisplayStateOnlyUpdate(@Nullable DisplayInfo previous,
++            @NonNull DisplayInfo next) {
++        if (previous == null || mDisplayContent.getDisplayId() == DEFAULT_DISPLAY
++                || previous.state == next.state) {
++            return false;
++        }
++        final DisplayInfo withNewState = new DisplayInfo(previous);
++        withNewState.state = next.state;
++        // The other fields changing along with the state are not deferrable (committedState...)
++        return (calculateDisplayInfoDiff(withNewState, next) & DIFF_WM_DEFERRABLE) == 0;
++    }
++
+     /**
+      * Requests a display change Shell transition
+      *

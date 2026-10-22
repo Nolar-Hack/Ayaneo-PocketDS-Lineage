@@ -1,0 +1,101 @@
+Subject: [PATCH] InputManagerService: play predefined effects on input devices
+
+Ayaneo Pocket DS: the only motor of the console is the one of the built-in controller
+("AYANEO Controller aya_haptic"); the PMIC haptics Android drives by default does nothing.
+With vibrate_input_devices=1 the vibrations of the system are forwarded to the input devices,
+but the haptic feedback of the system and of the keyboard (tick, click...) is a predefined
+(Prebaked) effect, which input devices do not support ("Only oneshot and step waveforms are
+supported on input devices"): the pattern was empty and nothing was felt. The predefined
+effects are now played as short strong pulses (30 to 50 ms: under that they are not felt).
+
+diff --git a/services/core/java/com/android/server/input/InputManagerService.java b/services/core/java/com/android/server/input/InputManagerService.java
+--- a/services/core/java/com/android/server/input/InputManagerService.java
++++ b/services/core/java/com/android/server/input/InputManagerService.java
+@@ -112,6 +112,7 @@
+ import android.os.SystemClock;
+ import android.os.UserHandle;
+ import android.os.VibrationEffect;
++import android.os.vibrator.PrebakedSegment;
+ import android.os.vibrator.StepSegment;
+ import android.os.vibrator.VibrationEffectSegment;
+ import android.provider.DeviceConfig;
+@@ -1573,6 +1574,51 @@
+             return mRepeat;
+         }
+ 
++        /**
++         * Steps for the predefined effects, for the motor of the controller: short and strong
++         * pulses (under 30 ms are not felt).
++         *
++         * @return the new number of steps
++         */
++        private static int addPredefinedEffect(int effectId, long[] pattern, int[] amplitudes,
++                int count) {
++            long duration = 30;
++            int amplitude = 200;
++            switch (effectId) {
++                case VibrationEffect.EFFECT_TICK:
++                case VibrationEffect.EFFECT_TEXTURE_TICK:
++                    amplitude = 160;
++                    break;
++                case VibrationEffect.EFFECT_CLICK:
++                    amplitude = 220;
++                    break;
++                case VibrationEffect.EFFECT_POP:
++                    amplitude = 200;
++                    break;
++                case VibrationEffect.EFFECT_THUD:
++                    duration = 45;
++                    amplitude = 230;
++                    break;
++                case VibrationEffect.EFFECT_HEAVY_CLICK:
++                    duration = 50;
++                    amplitude = 255;
++                    break;
++                case VibrationEffect.EFFECT_DOUBLE_CLICK:
++                    pattern[count] = 30;
++                    amplitudes[count++] = 220;
++                    pattern[count] = 60;
++                    amplitudes[count++] = 0;
++                    pattern[count] = 30;
++                    amplitudes[count++] = 220;
++                    return count;
++                default:
++                    break;
++            }
++            pattern[count] = duration;
++            amplitudes[count++] = amplitude;
++            return count;
++        }
++
+         VibrationInfo(VibrationEffect effect) {
+             long[] pattern = null;
+             int[] amplitudes = null;
+@@ -1581,8 +1627,9 @@
+ 
+             if (effect instanceof VibrationEffect.Composed composed) {
+                 int segmentCount = composed.getSegments().size();
+-                pattern = new long[segmentCount];
+-                amplitudes = new int[segmentCount];
++                // Room for the steps that a predefined effect expands to (at most 3 each).
++                pattern = new long[segmentCount * 3];
++                amplitudes = new int[segmentCount * 3];
+                 patternRepeatIndex = composed.getRepeatIndex();
+                 amplitudeCount = 0;
+                 for (int i = 0; i < segmentCount; i++) {
+@@ -1590,6 +1637,15 @@
+                     if (composed.getRepeatIndex() == i) {
+                         patternRepeatIndex = amplitudeCount;
+                     }
++                    if (segment instanceof PrebakedSegment prebaked) {
++                        // Ayaneo Pocket DS: the haptic feedback of the system and of the keyboard
++                        // (tick, click...) is a predefined effect, which input devices do not
++                        // support: nothing was felt. The motor of the built-in controller is the
++                        // only one of the console; it needs at least ~30 ms to be felt.
++                        amplitudeCount = addPredefinedEffect(prebaked.getEffectId(), pattern,
++                                amplitudes, amplitudeCount);
++                        continue;
++                    }
+                     if (!(segment instanceof StepSegment)) {
+                         Slog.w(TAG, "Input devices don't support segment " + segment);
+                         amplitudeCount = -1;

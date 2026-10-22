@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+
+     Values read from the stock Pocket DS framework-res.apk (01.00_20261010).
+-->
+<resources>
+    <!-- FocalTech fingerprint sensor in the power button (stock: isPowerbuttonFps=true) -->
+    <bool name="config_is_powerbutton_fps">true</bool>
+
+    <!-- No ambient light sensor on this device -->
+    <bool name="config_automatic_brightness_available">false</bool>
+
+    <!-- Stock values -->
+    <bool name="config_allowAllRotations">true</bool>
+    <bool name="config_lidControlsSleep">true</bool>
+    <bool name="config_supportsSystemDecorsOnSecondaryDisplays">true</bool>
+    <integer name="config_defaultRefreshRate">60</integer>
+    <integer name="config_defaultPeakRefreshRate">0</integer>
+
+    <!-- Name shown to a PC over MTP -->
+    <string name="mtp_pc_display_name" translatable="false">Pocket DS</string>
+
+    <!-- No desktop windowing (LineageOS turns it on for tablets): apps run full screen,
+         like on stock, on both built-in screens and on external displays. -->
+    <bool name="config_isDesktopModeSupported">false</bool>
+    <bool name="config_canInternalDisplayHostDesktops">false</bool>
+
+    <!-- Default brightness: half of the panel's real backlight (the AOSP default,
+         ~40% on the slider curve, looks far too dark on the 7" OLED). -->
+    <item name="config_screenBrightnessSettingDefaultFloat" format="float" type="dimen">0.5</item>
+
+    <!-- Power button fingerprint sensor (FocalTech, HIDL biometrics.fingerprint@2.1), as
+         declared by stock: id 0, fingerprint (2), strong (15). Android 17 only finds HIDL
+         sensors through this list; without it the framework falls back to the virtual
+         (test) sensor. -->
+    <string-array name="config_biometric_sensors" translatable="false">
+        <item>0:2:15</item>
+    </string-array>
+
+    <!-- Second built-in screen (bottom 5"): its own content, never a mirror of the main
+         screen (AYAHome drives it, like stock). Without this, Android 17 only gives it its
+         own content when built-in displays can host desktops, i.e. with desktop windowing. -->
+    <bool name="config_localDisplaysMirrorContent">false</bool>
+
+    <!-- The second screen is offered to apps as a presentation display
+         (DisplayManager.DISPLAY_CATEGORY_PRESENTATION), like the second screen of a DS. Emulators
+         with a dual screen mode (Lime3DS / Azahar, melonDS, DuckStation...) look for one: without
+         it they draw their second screen on a hidden virtual display and nothing shows on the
+         bottom screen. -->
+    <bool name="config_allowPresentationOnInternalDisplay">true</bool>
+
+    <!-- Launcher of the second screen: the one of PocketDS Extra (SECONDARY_HOME
+         SecondHomeActivity). Otherwise Android picks Trebuchet's while the setup wizard is the
+         home app and keeps it once PocketDS Extra becomes home. -->
+    <string name="config_secondaryHomePackage" translatable="false">org.lineageos.pocketds.parts</string>
+    <bool name="config_useSystemProvidedLauncherForSecondary">true</bool>
+
+    <!-- System navigation (gestures: swipe from the screen edges to go back / home / recents):
+         the main screen has a navigation bar, whose gesture handler it needs. Without this
+         Android 17 has no navigation bar on the default display and no gesture works. -->
+    <bool name="config_showNavigationBar">true</bool>
+</resources>

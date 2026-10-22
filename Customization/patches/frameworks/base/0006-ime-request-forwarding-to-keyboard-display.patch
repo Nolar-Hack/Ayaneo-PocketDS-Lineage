@@ -1,0 +1,58 @@
+Subject: [PATCH] WindowManager: forward the IME requests of an app to the display hosting the keyboard
+
+Ayaneo Pocket DS: the keyboard of apps on the main screen is shown on the second screen
+(0001-ime-on-second-screen.patch). Apps that ask for the keyboard through the insets API
+(WindowInsetsController.show(ime()): Play Store, Google app...) had their request dropped:
+the main screen has no IME window, so ImeInsetsSourceProvider took the app itself as the
+IME host and reported PHASE_SERVER_SET_REMOTE_TARGET_IME_VISIBILITY as failed, the input
+method service was never told and the keyboard did not appear. Apps that start the keyboard
+with a focused editor (Settings) were not affected. The request now goes to the remote
+insets controller of the display hosting the IME window.
+
+diff --git a/services/core/java/com/android/server/wm/DisplayContent.java b/services/core/java/com/android/server/wm/DisplayContent.java
+index 2b1ec5d..e938439 100644
+--- a/services/core/java/com/android/server/wm/DisplayContent.java
++++ b/services/core/java/com/android/server/wm/DisplayContent.java
+@@ -4721,6 +4721,22 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
+         return defaultDc.mRemoteInsetsControlTarget;
+     }
+ 
++    /**
++     * Ayaneo Pocket DS: remote insets controller of the other display that hosts the IME window
++     * (the keyboard of this display shown there), or null.
++     */
++    @Nullable
++    InsetsControlTarget getImeHostOnOtherDisplay() {
++        final InsetsControlTarget[] host = new InsetsControlTarget[1];
++        mWmService.mRoot.forAllDisplays(dc -> {
++            if (host[0] == null && dc != this && dc.getImeWindow() != null
++                    && dc.mRemoteInsetsControlTarget != null) {
++                host[0] = dc.mRemoteInsetsControlTarget;
++            }
++        });
++        return host[0];
++    }
++
+     private DisplayContent getUserMainDisplayContent() {
+         final int userId = mWmService.mUmInternal.getUserAssignedToDisplay(mDisplayId);
+         final DisplayContent defaultDc = mWmService.getUserMainDisplayContentLocked(userId);
+diff --git a/services/core/java/com/android/server/wm/ImeInsetsSourceProvider.java b/services/core/java/com/android/server/wm/ImeInsetsSourceProvider.java
+index 353914d..b2f3a9a 100644
+--- a/services/core/java/com/android/server/wm/ImeInsetsSourceProvider.java
++++ b/services/core/java/com/android/server/wm/ImeInsetsSourceProvider.java
+@@ -476,6 +476,15 @@ final class ImeInsetsSourceProvider extends InsetsSourceProvider {
+             // RemoteInsetsControlTarget of the default display)
+             controlTarget = mDisplayContent.getImeHost(
+                     ((InsetsControlTarget) imeInputTarget).getWindow());
++            // Ayaneo Pocket DS: the keyboard of this display is shown on the other one
++            // (persist.sys.pocketds.ime_display), no IME window here: its remote insets
++            // controller gets the request, else it is dropped and the keyboard never shows.
++            if (controlTarget == imeInputTarget && mDisplayContent.getImeWindow() == null) {
++                final InsetsControlTarget otherHost = mDisplayContent.getImeHostOnOtherDisplay();
++                if (otherHost != null) {
++                    controlTarget = otherHost;
++                }
++            }
+ 
+             if (controlTarget != null && controlTarget != imeInputTarget) {
+                 ImeTracker.forLogging().onProgress(statsToken,

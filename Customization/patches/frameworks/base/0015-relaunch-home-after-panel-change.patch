@@ -1,0 +1,52 @@
+Subject: [PATCH] Ayaneo Pocket DS: relaunch the home activities when their display changes panel
+
+With the screens swapped, the AYAHome menu of the second screen kept its 1024 x 768 layout in the
+corner of the 1920 x 1080 panel. When the physical panel behind a display changes, the home
+activities (AYAHome) are relaunched once the new configuration is dispatched, so that they lay
+themselves out again. Normal apps already follow the new size.
+
+diff --git a/services/core/java/com/android/server/wm/DisplayContent.java b/services/core/java/com/android/server/wm/DisplayContent.java
+index e93843990..991f35888 100644
+--- a/services/core/java/com/android/server/wm/DisplayContent.java
++++ b/services/core/java/com/android/server/wm/DisplayContent.java
+@@ -197,6 +197,7 @@ import android.os.Bundle;
+ import android.os.Debug;
+ import android.os.Handler;
+ import android.os.HandlerExecutor;
++import android.os.SystemProperties;
+ import android.os.IBinder;
+ import android.os.InputConfig;
+ import android.os.Message;
+@@ -3500,6 +3501,15 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
+ 
+             reconfigureDisplayLocked();
+ 
++            if (physicalDisplayChanged && "AR11".equals(
++                    SystemProperties.get("ro.product.device.type"))) {
++                // Ayaneo Pocket DS: the AYAHome home activities do not lay themselves out again
++                // when their display moves to the other panel (screens swapped): the menu of the
++                // second screen stayed 1024 x 768 in a corner of the 1920 x 1080 panel. Relaunch
++                // them once the new display configuration is dispatched.
++                mWmService.mH.postDelayed(this::relaunchAyaneoHomeActivities, 700);
++            }
++
+             if (physicalDisplayChanged) {
+                 mDisplayPolicy.physicalDisplayUpdated();
+                 if (Flags.syncedDisplayModeUpdates()) {
+@@ -3514,6 +3524,16 @@ class DisplayContent extends RootDisplayArea implements WindowManagerPolicy.Disp
+         }
+     }
+ 
++    private void relaunchAyaneoHomeActivities() {
++        synchronized (mWmService.mGlobalLock) {
++            forAllActivities(r -> {
++                if (r.isActivityTypeHome() && r.attachedToProcess() && r.isVisibleRequested()) {
++                    r.relaunchActivityLocked(false /* preserveWindow */, 0 /* configChangeFlags */);
++                }
++            });
++        }
++    }
++
+     /** Sets the maximum width the screen resolution can be */
+     void setMaxUiWidth(int width) {
+         if (DEBUG_DISPLAY) {

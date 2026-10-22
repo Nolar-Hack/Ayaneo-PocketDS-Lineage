@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources>
+    <!-- Hardware keys present: Home (the Ayaneo button, mapped to HOME in gpio-keys.kl) -->
+    <integer name="config_deviceHardwareKeys">1</integer>
+    <integer name="config_deviceHardwareWakeKeys">0</integer>
+</resources>

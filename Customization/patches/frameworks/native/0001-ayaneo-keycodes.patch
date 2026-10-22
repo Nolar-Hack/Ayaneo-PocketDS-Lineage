@@ -1,0 +1,36 @@
+Subject: [PATCH] input: Ayaneo keycodes (AYA_HOME, AYA_SPACE, AYA_CONTROL_LC/RC, AYA_PERFORMANCE_*)
+
+Same labels and values as the stock Ayaneo Pocket DS framework, so the stock
+gpio-keys.kl can be used and the Ayaneo apps receive the codes they expect.
+
+--- a/libs/input/InputEventLabels.cpp
++++ b/libs/input/InputEventLabels.cpp
+@@ -374,6 +374,19 @@
+     DEFINE_KEYCODE(CONTEXTUAL_SEARCH), \
+     DEFINE_KEYCODE(CONTEXTUAL_INSERT)
+ 
++// Ayaneo Pocket DS: keycodes of the stock Ayaneo framework (same labels and values),
++// used by the stock gpio-keys.kl and expected by the Ayaneo apps (AYAHome / AYAWindow
++// key detectors). Name -> value only: they are far above AKEYCODE_MAX, so they are not
++// part of KEY_NAMES, which is indexed by keycode.
++#define AYANEO_KEYCODES_SEQUENCE \
++    { "AYA_CONTROL_LC", 751 }, \
++    { "AYA_CONTROL_RC", 752 }, \
++    { "AYA_SPACE", 753 }, \
++    { "AYA_HOME", 754 }, \
++    { "AYA_PERFORMANCE_CONSERVATION", 760 }, \
++    { "AYA_PERFORMANCE_BALANCE", 761 }, \
++    { "AYA_PREFORMANCE_MAX", 762 }
++
+ // NOTE: If you add a new axis here you must also add it to several other files.
+ //       Refer to frameworks/base/core/java/android/view/MotionEvent.java for the full list.
+ #define AXES_SEQUENCE \
+@@ -462,7 +475,7 @@
+ // --- InputEventLookup ---
+ 
+ InputEventLookup::InputEventLookup()
+-      : KEYCODES({KEYCODES_SEQUENCE}),
++      : KEYCODES({KEYCODES_SEQUENCE, AYANEO_KEYCODES_SEQUENCE}),
+         KEY_NAMES({KEYCODES_SEQUENCE}),
+         AXES({AXES_SEQUENCE}),
+         AXES_NAMES({AXES_SEQUENCE}),

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest>
+  <remote name="mindthegapps-gitlab" fetch="https://gitlab.com/MindTheGapps/" />
+  <!-- MindTheGapps for Android 17 (LineageOS 24.0) -->
+  <project name="vendor_gapps" path="vendor/gapps" remote="mindthegapps-gitlab" revision="cinnamonbun" />
+</manifest>

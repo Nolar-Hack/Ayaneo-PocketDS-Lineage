@@ -1,0 +1,11 @@
+# FocalTech fingerprint HALs (stock rules)
+allow hal_fingerprint_default ff_device:chr_file rw_file_perms;
+allow hal_fingerprint_default ff_data_file:dir create_dir_perms;
+allow hal_fingerprint_default ff_data_file:file create_file_perms;
+add_hwservice(hal_fingerprint_default, ff_hwservice)
+
+# secure world access of the FocalTech fingerprint HAL (denials seen on the first boots)
+allow hal_fingerprint_default tee_device:chr_file rw_file_perms;
+allow hal_fingerprint_default vendor_dmabuf_qseecom_heap_device:chr_file r_file_perms;
+allow hal_fingerprint_default vendor_dmabuf_qseecom_ta_heap_device:chr_file r_file_perms;
+vndbinder_use(hal_fingerprint_default)

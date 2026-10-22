@@ -1,0 +1,24 @@
+//
+// SPDX-FileCopyrightText: The LineageOS Project
+// SPDX-License-Identifier: Apache-2.0
+//
+// PocketDS Extra: what the stock Ayaneo framework did for the Pocket DS hardware
+// (second screen brightness, keyboard on the second screen, touch tuning).
+
+android_app {
+    name: "PocketDSParts",
+    srcs: ["src/**/*.java"],
+    asset_dirs: ["assets"],
+    certificate: "platform",
+    platform_apis: true,
+    privileged: true,
+    system_ext_specific: true,
+    required: ["privapp-permissions-pocketds-parts.xml"],
+}
+
+prebuilt_etc {
+    name: "privapp-permissions-pocketds-parts.xml",
+    src: "permissions/privapp-permissions-pocketds-parts.xml",
+    sub_dir: "permissions",
+    system_ext_specific: true,
+}

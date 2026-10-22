@@ -1,0 +1,38 @@
+Subject: [PATCH] InputMethodManagerService: optional keyboard on the second screen
+
+Ayaneo Pocket DS: when persist.sys.pocketds.ime_display holds the ID of the second
+built-in display (set by PocketDS Parts), the keyboard of apps on the main screen
+is shown there, like on a DS. Unset or -1 keeps the AOSP behaviour.
+
+--- a/services/core/java/com/android/server/inputmethod/InputMethodManagerService.java
++++ b/services/core/java/com/android/server/inputmethod/InputMethodManagerService.java
+@@ -108,6 +108,7 @@
+ import android.os.ShellCallback;
+ import android.os.ShellCommand;
+ import android.os.SystemClock;
++import android.os.SystemProperties;
+ import android.os.Trace;
+ import android.os.UserHandle;
+ import android.os.UserManager;
+@@ -2524,9 +2525,21 @@
+      * {@link WindowManager#DISPLAY_IME_POLICY_HIDE}
+      */
+     static int computeImeDisplayIdForTarget(int displayId, @NonNull ImeDisplayValidator checker) {
++        // Ayaneo Pocket DS: optionally show the keyboard of apps on the main screen on the
++        // second screen (like a DS). persist.sys.pocketds.ime_display holds that display ID
++        // (set by PocketDS Parts), -1 or unset keeps the AOSP behaviour.
++        if (displayId == DEFAULT_DISPLAY) {
++            final int imeDisplayId = SystemProperties.getInt(POCKETDS_IME_DISPLAY_PROP, -1);
++            if (imeDisplayId > DEFAULT_DISPLAY
++                    && checker.getDisplayImePolicy(imeDisplayId) == DISPLAY_IME_POLICY_LOCAL) {
++                return imeDisplayId;
++            }
++        }
+         return computeImeDisplayIdForTargetInner(displayId, checker, FALLBACK_DISPLAY_ID);
+     }
+ 
++    private static final String POCKETDS_IME_DISPLAY_PROP = "persist.sys.pocketds.ime_display";
++
+     /**
+      * Find the display where the IME should be shown for a visible background user.
+      *

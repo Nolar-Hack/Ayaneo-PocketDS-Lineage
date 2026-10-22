@@ -1,0 +1,7 @@
+
+# Pocket DS — types from the stock vendor/odm policy
+type ff_device, dev_type;
+type ff_data_file, file_type, data_file_type;
+type tsnv_device, dev_type;
+type sysfs_fan, fs_type, sysfs_type;
+type sysfs_touchpanel, fs_type, sysfs_type;

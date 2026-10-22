@@ -1,0 +1,23 @@
+# Pocket DS — kernel pwm-fan (written by AYAHome / AYASettings)
+genfscon sysfs /devices/platform/soc/soc:pwm-fan u:object_r:sysfs_fan:s0
+
+# Charger IC (HL7139) power supply, read by the health HAL
+genfscon sysfs /devices/platform/soc/9c0000.qcom,qupv3_i2c_geni_se/988000.i2c/i2c-0/0-005f/power_supply u:object_r:sysfs_battery_supply:s0
+# Wakeup sources read by system_suspend: charger IC, Renesas xHCI (internal gamepad)
+genfscon sysfs /devices/platform/soc/9c0000.qcom,qupv3_i2c_geni_se/988000.i2c/i2c-0/0-005f/wakeup u:object_r:sysfs_wakeup:s0
+genfscon sysfs /devices/platform/soc/1c08000.qcom,pcie/pci0001:00/0001:00:00.0/0001:01:00.0/wakeup u:object_r:sysfs_wakeup:s0
+# Main screen touch controller (FT5452), tuned by PocketDS Parts
+genfscon sysfs /devices/platform/soc/ac0000.qcom,qupv3_1_geni_se/a90000.i2c/i2c-3/3-0038/fts_rw_reg u:object_r:sysfs_touchpanel:s0
+genfscon sysfs /devices/platform/soc/ac0000.qcom,qupv3_1_geni_se/a90000.i2c/i2c-3/3-0038/fts_charger_mode u:object_r:sysfs_touchpanel:s0
+# Bottom screen touch controller (Goodix), switched by the Ayaneo screen modes
+genfscon sysfs /devices/platform/soc/ac0000.qcom,qupv3_1_geni_se/a88000.i2c/i2c-2/2-005d/event_report u:object_r:sysfs_touchpanel:s0
+genfscon sysfs /devices/platform/soc/ac0000.qcom,qupv3_1_geni_se/a88000.i2c/i2c-2/2-005d/touchpad_mode u:object_r:sysfs_touchpanel:s0
+
+# Second power supply (ts_charger), read by the health HAL
+genfscon sysfs /devices/platform/soc/soc:ts_charger/power_supply u:object_r:sysfs_battery_supply:s0
+# Wakeup source of the FocalTech fingerprint sensor, read by system_suspend
+genfscon sysfs /devices/platform/soc/soc:focaltech_fp/wakeup u:object_r:sysfs_wakeup:s0
+
+# Wakeup sources of the charger IC power supply, read by system_suspend (a platform domain that
+# vendor policy cannot name: they are labelled with the type it may read)
+genfscon sysfs /devices/platform/soc/9c0000.qcom,qupv3_i2c_geni_se/988000.i2c/i2c-0/0-005f/power_supply/hl7139_master/wakeup u:object_r:sysfs_wakeup:s0

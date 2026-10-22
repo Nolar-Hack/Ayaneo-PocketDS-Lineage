@@ -1,0 +1,24 @@
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+
+     Vendor HALs of the Pocket DS that the framework itself does not require.
+-->
+<compatibility-matrix version="1.0" type="framework">
+    <hal format="hidl" optional="true">
+        <name>vendor.focaltech.hardware.biometrics.fingerprint</name>
+        <version>1.0</version>
+        <interface>
+            <name>IFocalFingerprint</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+    <hal format="hidl" optional="true">
+        <name>vendor.thundercomm.hardware.tsnv</name>
+        <version>1.0</version>
+        <interface>
+            <name>ITsnv</name>
+            <instance>default</instance>
+        </interface>
+    </hal>
+</compatibility-matrix>

@@ -1,0 +1,70 @@
+diff --git a/res/xml/power_usage_summary.xml b/res/xml/power_usage_summary.xml
+index 950ca2d..d6967e5 100644
+--- a/res/xml/power_usage_summary.xml
++++ b/res/xml/power_usage_summary.xml
+@@ -92,6 +92,65 @@
+             settings:requiresService="lineagehealth" />
+     </com.android.settingslib.widget.UntitledPreferenceCategory>
+ 
++    <!-- PocketDS Extra: battery tools of the console (app org.lineageos.pocketds.parts) -->
++    <com.android.settingslib.widget.UntitledPreferenceCategory
++        android:key="pocketds_category">
++        <Preference
++            android:key="pocketds_battery_stats"
++            android:title="Battery stats"
++            android:summary="Current, power, health and deep sleep">
++            <intent
++                android:action="android.intent.action.MAIN"
++                android:targetPackage="org.lineageos.pocketds.parts"
++                android:targetClass="org.lineageos.pocketds.parts.BatteryStatsActivity" />
++        </Preference>
++        <Preference
++            android:key="pocketds_background_limits"
++            android:title="Background limits"
++            android:summary="Stop apps from running in the background">
++            <intent
++                android:action="android.intent.action.MAIN"
++                android:targetPackage="org.lineageos.pocketds.parts"
++                android:targetClass="org.lineageos.pocketds.parts.BackgroundLimitsActivity" />
++        </Preference>
++        <Preference
++            android:key="pocketds_battery_radios"
++            android:title="Battery and radios"
++            android:summary="Wi-Fi and Bluetooth off when the screen is off">
++            <intent
++                android:action="android.intent.action.MAIN"
++                android:targetPackage="org.lineageos.pocketds.parts"
++                android:targetClass="org.lineageos.pocketds.parts.BatteryRadiosEntry" />
++        </Preference>
++        <Preference
++            android:key="pocketds_power_off"
++            android:title="Power off"
++            android:summary="Switch off after the lid is closed or the screen is off">
++            <intent
++                android:action="android.intent.action.MAIN"
++                android:targetPackage="org.lineageos.pocketds.parts"
++                android:targetClass="org.lineageos.pocketds.parts.PowerOffEntry" />
++        </Preference>
++        <Preference
++            android:key="pocketds_smart_pixels"
++            android:title="Smart Pixels"
++            android:summary="Fewer lit pixels to save power on the OLED screen">
++            <intent
++                android:action="android.intent.action.MAIN"
++                android:targetPackage="org.lineageos.pocketds.parts"
++                android:targetClass="org.lineageos.pocketds.parts.PixelsEntry" />
++        </Preference>
++        <Preference
++            android:key="pocketds_automation"
++            android:title="Automation"
++            android:summary="If this happens, do that: radios, refresh rate, apps...">
++            <intent
++                android:action="android.intent.action.MAIN"
++                android:targetPackage="org.lineageos.pocketds.parts"
++                android:targetClass="org.lineageos.pocketds.parts.RulesActivity" />
++        </Preference>
++    </com.android.settingslib.widget.UntitledPreferenceCategory>
++
+     <com.android.settingslib.widget.UntitledPreferenceCategory
+         android:key="percentage_category">
+         <SwitchPreferenceCompat

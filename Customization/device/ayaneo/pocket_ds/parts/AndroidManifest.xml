@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="org.lineageos.pocketds.parts"
+    android:sharedUserId="android.uid.system">
+
+    <uses-permission android:name="android.permission.CONTROL_DISPLAY_BRIGHTNESS" />
+    <uses-permission android:name="android.permission.REBOOT" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SYSTEM_EXEMPTED" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.MODIFY_DAY_NIGHT_MODE" />
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_ROUTING" />
+    <uses-permission android:name="android.permission.MEDIA_CONTENT_CONTROL" />
+
+    <application
+        android:label="PocketDS Extra"
+        android:name=".PocketDSApplication"
+        android:directBootAware="true"
+        android:defaultToDeviceProtectedStorage="true">
+
+        <!-- Smart Pixels, battery and logs (Settings of PocketDS Extra) -->
+        <activity
+            android:name=".PartsSettingsActivity"
+            android:taskAffinity=".extra"
+            android:label="PocketDS Extra"
+            android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!-- Not a persistent app (it can be updated with adb install): this keeps it running -->
+        <service
+            android:name=".PocketKeyboardService"
+            android:label="PocketDS keyboard"
+            android:exported="true"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/pocketds_method" />
+        </service>
+
+        <service
+            android:name=".KeepAliveService"
+            android:directBootAware="true"
+            android:exported="false"
+            android:foregroundServiceType="systemExempted" />
+        <receiver
+            android:name=".BootReceiver"
+            android:directBootAware="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <activity
+            android:name=".SectionActivity"
+            android:taskAffinity=".extra"
+            android:label="PocketDS Extra"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+        <activity
+            android:name=".RulesActivity"
+            android:taskAffinity=".extra"
+            android:label="Automation"
+            android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        </activity>
+        <!-- Entries of Settings > Battery: the Settings app opens them through the preferences added by
+             patches/packages/apps/Settings/0001-battery-pocketds-extra-entries.patch -->
+        <activity
+            android:name=".BatteryStatsActivity"
+            android:taskAffinity=".extra"
+            android:label="Battery stats"
+            android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault.Settings">
+        </activity>
+        <activity
+            android:name=".BackgroundLimitsActivity"
+            android:label="Background limits"
+            android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        </activity>
+        <activity
+            android:name=".BatteryRadiosEntry"
+            android:label="Battery and radios"
+            android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault.Settings">
+        </activity>
+        <activity
+            android:name=".PowerOffEntry"
+            android:label="Power off"
+            android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault.Settings">
+        </activity>
+        <activity
+            android:name=".PixelsEntry"
+            android:label="Smart Pixels"
+            android:exported="true"
+            android:theme="@android:style/Theme.DeviceDefault.Settings">
+        </activity>
+        <!-- Home of the second (bottom) screen, in place of the AYAHome menu: list of applications
+             (asks on which screen to open each one) or an empty screen. Chosen by
+             patches/frameworks/base/0016 while Settings.Global pocketds_second_home is 1. Not
+             singleTask / singleInstance: the system refuses such a home on a second display. -->
+        <activity
+            android:name=".SecondHomeActivity"
+            android:label="PocketDS Home"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="true"
+            android:theme="@android:style/Theme.DeviceDefault.Wallpaper.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.SECONDARY_HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <!-- Home of the main (top) screen showing only the wallpaper, chosen over the AYAHome desktop
+             by patches/frameworks/base/0017 while Settings.Global pocketds_main_home is 1. -->
+        <activity
+            android:name=".MainHomeActivity"
+            android:label="PocketDS Wallpaper"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:resizeableActivity="true"
+            android:theme="@android:style/Theme.DeviceDefault.Wallpaper.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <!-- The overlay of the console (AYA window button): profiles, live numbers, brightness, volume -->
+        <activity
+            android:name=".RuleEditorActivity"
+            android:label="Rule"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+    </application>
+</manifest>

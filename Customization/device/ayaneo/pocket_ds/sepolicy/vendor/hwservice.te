@@ -1,0 +1,2 @@
+type ff_hwservice, hwservice_manager_type;
+type hal_tsnv_hwservice, hwservice_manager_type;

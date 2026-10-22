@@ -1,0 +1,48 @@
+Subject: [PATCH] inputflinger: dead zone of the sticks of the Ayaneo Pocket DS controller
+
+persist.sys.pocketds.deadzone (percent of the travel, 0 to 50, set by the PocketDS Extra overlay):
+inside the dead zone each of the four stick axes of "AYANEO Controller" reads 0, outside the
+travel is stretched so that the end of the range still reads 1. Unset or 0: nothing changes.
+
+diff --git a/services/inputflinger/reader/mapper/JoystickInputMapper.cpp b/services/inputflinger/reader/mapper/JoystickInputMapper.cpp
+index a988f7b..ba4b331 100644
+--- a/services/inputflinger/reader/mapper/JoystickInputMapper.cpp
++++ b/services/inputflinger/reader/mapper/JoystickInputMapper.cpp
+@@ -18,6 +18,10 @@
+ 
+ #include "JoystickInputMapper.h"
+ 
++#include <android-base/properties.h>
++#include <algorithm>
++#include <cmath>
++
+ #include <android-base/logging.h>
+ #include <ftl/enum.h>
+ #include <format>
+@@ -504,6 +508,26 @@ std::list<NotifyArgs> JoystickInputMapper::process(const RawEvent& rawEvent) {
+                         highNewValue = 0.0f;
+                         break;
+                 }
++                // Ayaneo Pocket DS: a dead zone chosen in the PocketDS Extra overlay (percent of
++                // the travel of a stick, persist.sys.pocketds.deadzone): inside it the stick reads
++                // 0, outside the travel is stretched so that the end of the range stays at 1.
++                if (axis.axisInfo.mode == AxisInfo::MODE_NORMAL &&
++                    (axis.axisInfo.axis == AMOTION_EVENT_AXIS_X ||
++                     axis.axisInfo.axis == AMOTION_EVENT_AXIS_Y ||
++                     axis.axisInfo.axis == AMOTION_EVENT_AXIS_Z ||
++                     axis.axisInfo.axis == AMOTION_EVENT_AXIS_RZ) &&
++                    getDeviceName().rfind("AYANEO Controller", 0) == 0) {
++                    const float zone =
++                            std::min(0.5f, std::max(0, base::GetIntProperty(
++                                                        "persist.sys.pocketds.deadzone", 0)) /
++                                                   100.0f);
++                    if (zone > 0.0f) {
++                        const float magnitude = fabs(newValue);
++                        newValue = magnitude <= zone
++                                ? 0.0f
++                                : (newValue < 0 ? -1.0f : 1.0f) * (magnitude - zone) / (1.0f - zone);
++                    }
++                }
+                 axis.newValue = newValue;
+                 axis.highNewValue = highNewValue;
+                 axis.lastUpdateTime = rawEvent.when;

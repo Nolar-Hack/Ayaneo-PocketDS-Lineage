@@ -1,0 +1,125 @@
+diff --git a/services/core/java/com/android/server/display/ColorFade.java b/services/core/java/com/android/server/display/ColorFade.java
+index 49e18b752..07870a10f 100644
+--- a/services/core/java/com/android/server/display/ColorFade.java
++++ b/services/core/java/com/android/server/display/ColorFade.java
+@@ -31,6 +31,7 @@ import android.opengl.EGLDisplay;
+ import android.opengl.EGLSurface;
+ import android.opengl.GLES11Ext;
+ import android.opengl.GLES20;
++import android.os.SystemProperties;
+ import android.util.Slog;
+ import android.view.Display;
+ import android.view.DisplayInfo;
+@@ -66,6 +67,9 @@ import java.nio.FloatBuffer;
+  */
+ final class ColorFade {
+     private static final String TAG = "ColorFade";
++    private static final String PROP_CRT = "persist.sys.pocketds.crt";
++    // Thickness of the line the picture collapses to (fraction of the screen).
++    private static final float CRT_LINE_THICKNESS = 0.006f;
+ 
+     // To enable these logs, run:
+     // 'adb shell setprop persist.log.tag.ColorFade DEBUG && adb reboot'
+@@ -93,6 +97,7 @@ final class ColorFade {
+ 
+     private final DisplayManagerInternal mDisplayManagerInternal;
+     private int mDisplayLayerStack; // layer stack associated with primary display
++    private int mDisplayRotation;   // rotation of the display when the animation was prepared
+     private int mDisplayWidth;      // real width, not rotated
+     private int mDisplayHeight;     // real height, not rotated
+     private SurfaceControl mSurfaceControl;
+@@ -114,6 +119,7 @@ final class ColorFade {
+     private boolean mTexNamesGenerated;
+     private final float mTexMatrix[] = new float[16];
+     private final float mProjMatrix[] = new float[16];
++    private final float mScaledProjMatrix[] = new float[16];
+     private final int[] mGLBuffers = new int[2];
+     private int mTexCoordLoc, mVertexLoc, mTexUnitLoc, mProjMatrixLoc, mTexMatrixLoc;
+     private int mOpacityLoc, mGammaLoc;
+@@ -177,6 +183,7 @@ final class ColorFade {
+         mDisplayLayerStack = displayInfo.layerStack;
+         mDisplayWidth = displayInfo.getNaturalWidth();
+         mDisplayHeight = displayInfo.getNaturalHeight();
++        mDisplayRotation = displayInfo.rotation;
+ 
+         final boolean isWideColor = displayInfo.colorMode == Display.COLOR_MODE_DISPLAY_P3;
+         // Set mPrepared here so if initialization fails, resources can be cleaned up.
+@@ -466,6 +473,14 @@ final class ColorFade {
+             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+ 
+             // Draw the frame.
++            if (SystemProperties.getBoolean(PROP_CRT, true)) {
++                drawCrt(level);
++                if (checkGlErrors("drawFrame")) {
++                    return false;
++                }
++                EGL14.eglSwapBuffers(mEglDisplay, mEglSurface);
++                return showSurface(1.0f);
++            }
+             double one_minus_level = 1 - level;
+             double cos = Math.cos(Math.PI * one_minus_level);
+             double sign = cos < 0 ? -1 : 1;
+@@ -483,15 +498,62 @@ final class ColorFade {
+         return showSurface(1.0f);
+     }
+ 
++    /**
++     * Pocket DS: screen off like a CRT television. The picture first collapses to a bright
++     * horizontal line, which then shrinks to a dot that fades away. Turning the screen on plays it
++     * the other way round. Option "persist.sys.pocketds.crt" (PocketDS Extra), on by default.
++     *
++     * @param level 1 = picture fully shown, 0 = screen black
++     */
++    private void drawCrt(float level) {
++        final float split = 0.45f;
++        // Scale of the picture along the visible vertical and horizontal axes.
++        final float sizeV;
++        final float sizeH;
++        final float opacity;
++        final float gamma;
++        if (level > split) {
++            final float u = (level - split) / (1f - split);
++            sizeV = Math.max(CRT_LINE_THICKNESS, u * u);
++            sizeH = 1f;
++            opacity = 1f;
++            gamma = 1f - 0.4f * (1f - u);
++        } else {
++            final float v = level / split;
++            sizeV = CRT_LINE_THICKNESS;
++            sizeH = Math.max(0.002f, v * v);
++            opacity = Math.min(1f, v * 2f);
++            gamma = 0.6f;
++        }
++        // The surface is in the natural orientation of the panel: when the display is rotated by
++        // 90 or 270 degrees the visible vertical axis is the natural horizontal one.
++        final boolean swapped = mDisplayRotation == Surface.ROTATION_90
++                || mDisplayRotation == Surface.ROTATION_270;
++        drawFaded(opacity, gamma, swapped ? sizeV : sizeH, swapped ? sizeH : sizeV);
++    }
++
+     private void drawFaded(float opacity, float gamma) {
++        drawFaded(opacity, gamma, 1f, 1f);
++    }
++
++    /** @param scaleX / scaleY size of the picture on the natural axes, around the centre. */
++    private void drawFaded(float opacity, float gamma, float scaleX, float scaleY) {
+         if (DEBUG) {
+             Slog.d(TAG, "drawFaded: opacity=" + opacity + ", gamma=" + gamma);
+         }
++        final float[] proj = mScaledProjMatrix;
++        System.arraycopy(mProjMatrix, 0, proj, 0, 16);
++        final float centerX = mDisplayWidth / 2f;
++        final float centerY = mDisplayHeight / 2f;
++        proj[0] = mProjMatrix[0] * scaleX;
++        proj[12] = mProjMatrix[0] * centerX * (1f - scaleX) + mProjMatrix[12];
++        proj[5] = mProjMatrix[5] * scaleY;
++        proj[13] = mProjMatrix[5] * centerY * (1f - scaleY) + mProjMatrix[13];
+         // Use shaders
+         GLES20.glUseProgram(mProgram);
+ 
+         // Set Uniforms
+-        GLES20.glUniformMatrix4fv(mProjMatrixLoc, 1, false, mProjMatrix, 0);
++        GLES20.glUniformMatrix4fv(mProjMatrixLoc, 1, false, proj, 0);
+         GLES20.glUniformMatrix4fv(mTexMatrixLoc, 1, false, mTexMatrix, 0);
+         GLES20.glUniform1f(mOpacityLoc, opacity);
+         GLES20.glUniform1f(mGammaLoc, gamma);
