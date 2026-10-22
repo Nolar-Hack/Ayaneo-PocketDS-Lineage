@@ -132,8 +132,12 @@ phase_sync() {
     mkdir -p "$SRC_DIR/.repo/local_manifests"
     [[ -f "$GIT_CONFIG_GLOBAL" ]] || printf '[user]\n\tname = Pocket DS builder\n\temail = builder@localhost\n[color]\n\tui = false\n' > "$GIT_CONFIG_GLOBAL"
     cp "$REPO_DIR"/manifests/*.xml "$SRC_DIR/.repo/local_manifests/"
+    # repo asks for a name, an e-mail and the colours when ~/.gitconfig lacks them, and it reads that
+    # file, not GIT_CONFIG_GLOBAL: give it a home of its own with the answers, so it never asks.
+    mkdir -p "$SRC_DIR/.repo-home"
+    cp -f "$GIT_CONFIG_GLOBAL" "$SRC_DIR/.repo-home/.gitconfig"
     (cd "$SRC_DIR" &&
-        repo init -u https://github.com/LineageOS/android.git -b lineage-24.0 --git-lfs --depth=1 --no-clone-bundle &&
+        HOME="$SRC_DIR/.repo-home" repo init -u https://github.com/LineageOS/android.git -b lineage-24.0 --git-lfs --depth=1 --no-clone-bundle &&
         repo sync -c -j"$SYNC_JOBS" --force-sync --no-tags --no-clone-bundle --optimized-fetch --retry-fetches=3)
     fetch_lfs
     ok "Sources synced"
@@ -330,14 +334,16 @@ if $CHECK && { $DO_SYNC || $DO_COPY || $DO_BUILD; }; then
     "$SCRIPT_DIR/check-prereqs.sh" || die "Prerequisites missing (see above). Fix them, or use --skip-checks"
 fi
 
-# A new image gets a new version, before --copy puts the VERSION file into the tree.
+$DO_SYNC    && phase_sync
+
+# A new image gets a new version, before --copy puts the VERSION file into the tree. Done after the
+# sync so that a build cancelled while it downloads does not use a number.
 if $BUMP && $DO_COPY && $DO_BUILD; then
     step "Version of this build"
     "$SCRIPT_DIR/release.sh" next
     warn "VERSION changed: commit it (git add -A && git commit) so that the release matches the code"
 fi
 
-$DO_SYNC    && phase_sync
 $DO_COPY    && phase_fetch
 $DO_COPY    && phase_copy
 $DO_EXTRACT && phase_extract
