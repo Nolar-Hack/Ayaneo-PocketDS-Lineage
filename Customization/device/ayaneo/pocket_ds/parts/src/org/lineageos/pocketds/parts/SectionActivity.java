@@ -644,6 +644,11 @@ public class SectionActivity extends Activity {
     private void games(Ui ui, LinearLayout page) {
         ui.hero(page, "🎮", Ui.PURPLE, "Games",
                 "A profile for each app, switched on when it opens");
+        final LinearLayout general = ui.card(page);
+        ui.actionRow(general, "🕹️", Ui.PURPLE, "Button remapping, every app",
+                "A drawing of the console: tap a button, pick what it sends", () ->
+                        startActivity(new Intent(this, ControllerMapActivity.class)));
+        ui.section(page, "Each app");
         final android.content.SharedPreferences prefs = PartsPrefs.get(this);
         final android.content.pm.PackageManager pm = getPackageManager();
         final java.util.TreeMap<String, String> found = new java.util.TreeMap<>();
@@ -713,8 +718,8 @@ public class SectionActivity extends Activity {
             "Swap X ↔ Y: " + choiceText(p.swapXy),
             "Dead zone: " + (p.zone < 0 ? "Same as everywhere"
                     : p.zone == 0 ? "None" : p.zone + " %"),
-            "Button remapping: " + (p.map == null ? "Same as everywhere"
-                    : p.map.isEmpty() ? "None" : p.map.split(",").length + " (saved)"),
+            "Button remapping on the drawing: " + (p.map == null ? "Same as everywhere"
+                    : p.map.isEmpty() ? "None" : p.map.split(",").length + " remaps"),
             "Reset: same as everywhere"};
         new android.app.AlertDialog.Builder(this).setTitle(title + " · controller")
                 .setItems(items, (d, which) -> {
@@ -728,21 +733,10 @@ public class SectionActivity extends Activity {
                             break;
                         }
                         case 3:
-                            // same as everywhere -> the remapping set now in the overlay -> none
-                            if (p.map == null) {
-                                p.map = android.os.SystemProperties.get(
-                                        ControllerProfiles.PROP_MAP, "");
-                                if (p.map.isEmpty()) {
-                                    Toast.makeText(this, "No remapping is set in the overlay "
-                                            + "(Controller page): this app will have none",
-                                            Toast.LENGTH_LONG).show();
-                                }
-                            } else if (!p.map.isEmpty()) {
-                                p.map = "";
-                            } else {
-                                p.map = null;
-                            }
-                            break;
+                            startActivity(new Intent(this, ControllerMapActivity.class)
+                                    .putExtra(ControllerMapActivity.EXTRA_PACKAGE, pkg)
+                                    .putExtra(ControllerMapActivity.EXTRA_LABEL, title));
+                            return;
                         default:
                             p.swapAb = -1;
                             p.swapXy = -1;

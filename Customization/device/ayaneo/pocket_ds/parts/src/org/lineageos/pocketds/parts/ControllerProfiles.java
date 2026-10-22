@@ -25,6 +25,38 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
     static final String PROP_ZONE = "persist.sys.pocketds.deadzone";
     static final String PROP_MAP = "persist.sys.pocketds.keymap";
 
+    /** What a button can be made to send (names and Android key codes), "Nothing" disables it. */
+    static final String[] TARGET_NAMES = {"A", "B", "X", "Y", "L1", "R1", "L2", "R2", "L3", "R3",
+        "Start", "Select", "Mode", "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Back",
+        "Home", "Volume up", "Volume down", "Nothing"};
+    static final int[] TARGET_CODES = {96, 97, 99, 100, 102, 103, 104, 105, 106, 107, 108, 109,
+        110, 19, 20, 21, 22, 4, 3, 24, 25, 0};
+
+    /** "scancode:keycode,..." as read by the input reader. */
+    static android.util.SparseIntArray parseMap(String text) {
+        final android.util.SparseIntArray map = new android.util.SparseIntArray();
+        if (text == null) return map;
+        for (String pair : text.split(",")) {
+            final String[] parts = pair.split(":");
+            if (parts.length != 2) continue;
+            try {
+                map.put(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+            } catch (NumberFormatException e) {
+                // skipped
+            }
+        }
+        return map;
+    }
+
+    static String encodeMap(android.util.SparseIntArray map) {
+        final StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < map.size(); i++) {
+            if (sb.length() > 0) sb.append(',');
+            sb.append(map.keyAt(i)).append(':').append(map.valueAt(i));
+        }
+        return sb.toString();
+    }
+
     /** What an app changes; a field left at -1 (null for the remap) keeps the general setting. */
     static final class Profile {
         int swapAb = -1;
