@@ -8,9 +8,8 @@
 # Private repo: the proprietary files (kernel/, vendor/, gboard, ayaneo-apps) ARE kept as a backup.
 # NEVER make this repository public.
 
-# Third-party binaries downloaded by build.sh (pinned + sha256): scripts/fetch-kernelsu.sh, fetch-obtainium.sh
-/Customization/packages/kernelsu/prebuilt/
-/Customization/packages/obtainium/prebuilt/
+# Third-party binaries (KernelSU Next, Obtainium) are kept too, in case the downloads disappear;
+# build.sh still re-downloads them (scripts/fetch-kernelsu.sh, fetch-obtainium.sh).
 
 # Build leftovers
 *.idsig
