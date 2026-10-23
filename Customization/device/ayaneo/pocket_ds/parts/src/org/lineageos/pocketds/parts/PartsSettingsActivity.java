@@ -82,6 +82,8 @@ public class PartsSettingsActivity extends Activity {
                 open(SectionActivity.GAMES)));
         tiles.add(ui.tile("🕹️", Ui.BLUE, "Controller", controllerStatus(),
                 open(SectionActivity.CONTROLLER)));
+        tiles.add(ui.tile("🧭", Ui.TEAL, "Motion sensors", "Gyroscope direction, calibration",
+                open(SectionActivity.MOTION)));
         tiles.add(ui.tile("🤖", Ui.PURPLE, "Automation", automation,
                 v -> startActivity(new Intent(this, RulesActivity.class))));
         tiles.add(ui.tile("✨", Ui.PINK, "Smart Pixels",

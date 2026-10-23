@@ -38,6 +38,7 @@ public class SectionActivity extends Activity {
     static final String GAMES = "games";
     static final String CONTROLLER = "controller";
     static final String UPDATES = "updates";
+    static final String MOTION = "motion";
 
     private static final String[] DELAYS = {"Never", "1 min", "5 min", "15 min", "30 min", "1 h"};
     private static final String[] DELAY_VALUES = {"0", "1", "5", "15", "30", "60"};
@@ -98,6 +99,9 @@ public class SectionActivity extends Activity {
                 break;
             case UPDATES:
                 updates(ui, page);
+                break;
+            case MOTION:
+                motion(ui, page);
                 break;
             default:
                 tools(ui, page);
@@ -459,6 +463,142 @@ public class SectionActivity extends Activity {
     protected void onPause() {
         super.onPause();
         if (mUpdateTick != null) mUpdateHandler.removeCallbacks(mUpdateTick);
+        if (mMotion != null) mMotion.cancel();
+    }
+
+    private MotionCalibration mMotion;
+
+    /**
+     * Motion sensors: which way the gyroscope turns (two switches) and the calibration of its
+     * bias. Both are stored in the sensors registry, which the sensors read at boot.
+     */
+    private void motion(Ui ui, LinearLayout page) {
+        setTitle("Motion sensors");
+        ui.hero(page, "🧭", Ui.TEAL, "Motion sensors",
+                "Calibration of the gyroscope, for games that aim with it. The direction is in "
+                        + "Controller.");
+        mMotion = new MotionCalibration(this);
+        final Handler main = new Handler(Looper.getMainLooper());
+
+        // A change is read by the sensors at boot only.
+        final LinearLayout pending = ui.card(page);
+        ui.actionRow(pending, "🔄", Ui.ORANGE, "Restart to apply",
+                "The sensors read their settings when the console starts",
+                () -> getSystemService(android.os.PowerManager.class).reboot(null));
+        pending.setVisibility(android.view.View.GONE);
+
+        ui.section(page, "Calibration");
+        ui.note(page, "Put the console flat on a steady surface and do not touch it while it"
+                + " measures (10 s). A gyroscope that drifts when the console is still reads a"
+                + " small constant: this removes it.");
+        final LinearLayout cal = ui.card(page);
+        final Runnable[] render = new Runnable[1];
+        final MotionCalibration.Result[] last = {null};
+        final int[] progress = {0};
+        final int[] state = {0};   // 0 idle, 1 measuring, 2 result, 3 saved
+        final float[][] inUse = {null};
+        render[0] = () -> {
+            cal.removeAllViews();
+            switch (state[0]) {
+                case 1:
+                    ui.row(cal, "⏳", Ui.ORANGE, "Measuring… " + progress[0] + " %",
+                            "Do not move the console");
+                    ui.progressBar(cal, progress[0], Ui.ORANGE);
+                    ui.actionRow(cal, "✖️", Ui.RED, "Cancel", null, () -> {
+                        mMotion.cancel();
+                        state[0] = 0;
+                        render[0].run();
+                    });
+                    break;
+                case 2:
+                    if (last[0].ok) {
+                        ui.row(cal, "📊", Ui.TEAL, "It drifts by",
+                                MotionCalibration.describe(last[0].mean));
+                        ui.actionRow(cal, "✅", Ui.GREEN, "Apply",
+                                "Stores " + MotionCalibration.describe(last[0].bias), () ->
+                                new Thread(() -> {
+                                    final boolean saved =
+                                            MotionCalibration.writeBias(last[0].bias);
+                                    main.post(() -> {
+                                        if (saved) {
+                                            state[0] = 3;
+                                            inUse[0] = last[0].bias;
+                                            pending.setVisibility(android.view.View.VISIBLE);
+                                        } else {
+                                            Toast.makeText(this, "Could not store the"
+                                                    + " calibration (root)", Toast.LENGTH_LONG)
+                                                    .show();
+                                        }
+                                        render[0].run();
+                                    });
+                                }, "PocketDSMotionSave").start());
+                    } else {
+                        ui.row(cal, "⚠️", Ui.ORANGE, "No calibration", last[0].problem);
+                    }
+                    ui.actionRow(cal, "🔄", Ui.BLUE, "Measure again", null, () -> {
+                        state[0] = 1;
+                        progress[0] = 0;
+                        render[0].run();
+                        mMotion.start(listener(state, progress, last, render));
+                    });
+                    break;
+                case 3:
+                    ui.row(cal, "✅", Ui.GREEN, "Saved", "Restart the console to use it");
+                    break;
+                default:
+                    ui.row(cal, "🧭", Ui.TEAL, "Correction in use", inUse[0] == null
+                            ? "Reading…" : MotionCalibration.describe(inUse[0]));
+                    if (mMotion.available()) {
+                        ui.actionRow(cal, "🎯", Ui.TEAL, "Calibrate", "Flat and still, 10 s", () -> {
+                            state[0] = 1;
+                            progress[0] = 0;
+                            render[0].run();
+                            mMotion.start(listener(state, progress, last, render));
+                        });
+                    } else {
+                        ui.row(cal, "⚠️", Ui.ORANGE, "No gyroscope", null);
+                    }
+                    ui.actionRow(cal, "↩️", Ui.GREY, "Reset to zero",
+                            "Removes the stored correction", () ->
+                            new Thread(() -> {
+                                final boolean saved = MotionCalibration.writeBias(new float[3]);
+                                main.post(() -> {
+                                    if (saved) {
+                                        inUse[0] = new float[3];
+                                        pending.setVisibility(android.view.View.VISIBLE);
+                                    }
+                                    render[0].run();
+                                });
+                            }, "PocketDSMotionReset").start());
+                    break;
+            }
+        };
+        render[0].run();
+        new Thread(() -> {
+            final float[] bias = MotionCalibration.readBias();
+            main.post(() -> {
+                inUse[0] = bias;
+                if (state[0] == 0) render[0].run();
+            });
+        }, "PocketDSMotionBias").start();
+    }
+
+    private MotionCalibration.Listener listener(int[] state, int[] progress,
+            MotionCalibration.Result[] last, Runnable[] render) {
+        return new MotionCalibration.Listener() {
+            @Override
+            public void onProgress(int percent) {
+                progress[0] = percent;
+                render[0].run();
+            }
+
+            @Override
+            public void onDone(MotionCalibration.Result result) {
+                last[0] = result;
+                state[0] = 2;
+                render[0].run();
+            }
+        };
     }
 
     /** System update: the installed version, the newest release, and one button for what is next. */

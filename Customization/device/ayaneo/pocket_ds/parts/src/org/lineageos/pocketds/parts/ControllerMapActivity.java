@@ -69,12 +69,34 @@ public class ControllerMapActivity extends Activity {
             mUi.section(page, "Profile");
             mOptions = mUi.card(page);
             paintOptions();
+        } else {
+            mUi.section(page, "Gyroscope");
+            mGyro = mUi.card(page);
+            paintGyro();
+            mUi.note(page, "If a game aims the wrong way when you move the console, turn the"
+                    + " gyroscope round here, or in a profile to do it for some games only.");
         }
     }
 
     // ---- the other settings of a profile: below the drawing, the remapping comes first
 
     private LinearLayout mOptions;
+    private LinearLayout mGyro;
+
+    /** The gyroscope of every app: the two directions, applied at once. */
+    private void paintGyro() {
+        mGyro.removeAllViews();
+        final boolean h = SystemProperties.getBoolean(ControllerProfiles.PROP_GYRO_H, false);
+        final boolean v = SystemProperties.getBoolean(ControllerProfiles.PROP_GYRO_V, false);
+        mUi.actionRow(mGyro, "↔️", Ui.BLUE, "Invert left / right", h ? "On" : "Off", () -> {
+            SystemProperties.set(ControllerProfiles.PROP_GYRO_H, h ? "false" : "true");
+            paintGyro();
+        });
+        mUi.actionRow(mGyro, "↕️", Ui.BLUE, "Invert up / down", v ? "On" : "Off", () -> {
+            SystemProperties.set(ControllerProfiles.PROP_GYRO_V, v ? "false" : "true");
+            paintGyro();
+        });
+    }
     private static final int[] ZONES = {-1, 0, 5, 10, 15, 20, 25};
 
     private static String choiceText(int value) {
@@ -97,6 +119,16 @@ public class ControllerMapActivity extends Activity {
             int i = 0;
             while (i < ZONES.length && ZONES[i] != p.zone) i++;
             p.zone = ZONES[(i + 1) % ZONES.length];
+            saveProfile();
+        });
+        mUi.actionRow(mOptions, "↔️", Ui.BLUE, "Invert the gyroscope left / right",
+                choiceText(p.gyroH), () -> {
+            p.gyroH = p.gyroH < 0 ? 1 : p.gyroH == 1 ? 0 : -1;
+            saveProfile();
+        });
+        mUi.actionRow(mOptions, "↕️", Ui.BLUE, "Invert the gyroscope up / down",
+                choiceText(p.gyroV), () -> {
+            p.gyroV = p.gyroV < 0 ? 1 : p.gyroV == 1 ? 0 : -1;
             saveProfile();
         });
         mUi.actionRow(mOptions, "✏️", Ui.ORANGE, "Rename", mNamed.name, this::rename);

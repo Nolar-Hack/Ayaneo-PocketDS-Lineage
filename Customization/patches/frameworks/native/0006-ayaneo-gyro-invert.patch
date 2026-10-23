@@ -1,0 +1,63 @@
+Subject: [PATCH] sensorservice: turn the gyroscope round per controller profile (Ayaneo Pocket DS)
+
+persist.sys.pocketds.gyro_invert_h (turning to the left or right: the Y axis of the gyroscope)
+and persist.sys.pocketds.gyro_invert_v (tilting up or down: the X axis), set by PocketDS Extra
+per controller profile, change the sign of that axis of the gyroscope and uncalibrated gyroscope
+events sent to every app, with no reboot. Unset: nothing changes. The fused sensors (rotation
+vectors) are made in the sensor hub and are not changed.
+
+diff --git a/services/sensorservice/SensorEventConnection.cpp b/services/sensorservice/SensorEventConnection.cpp
+--- a/services/sensorservice/SensorEventConnection.cpp
++++ b/services/sensorservice/SensorEventConnection.cpp
+@@ -14,6 +14,8 @@
+  * limitations under the License.
+  */
+ 
++#include <android-base/properties.h>
++#include <atomic>
+ #include <log/log.h>
+ #include <sys/socket.h>
+ #include <utils/threads.h>
+@@ -313,6 +315,34 @@
+     }
+ }
+ 
++// Ayaneo Pocket DS: the gyroscope can be turned round per controller profile (PocketDS Extra sets
++// persist.sys.pocketds.gyro_invert_h for turning to the left or right, which is the Y axis of the
++// gyroscope, and persist.sys.pocketds.gyro_invert_v for tilting up or down, the X axis). The
++// properties are read again at most twice a second.
++static void pocketdsInvertGyro(sensors_event_t& event) {
++    if (event.type != SENSOR_TYPE_GYROSCOPE && event.type != SENSOR_TYPE_GYROSCOPE_UNCALIBRATED) {
++        return;
++    }
++    static std::atomic<nsecs_t> nextRead{0};
++    static std::atomic<bool> invertH{false};
++    static std::atomic<bool> invertV{false};
++    const nsecs_t now = systemTime(SYSTEM_TIME_MONOTONIC);
++    if (now >= nextRead.load()) {
++        invertH = base::GetBoolProperty("persist.sys.pocketds.gyro_invert_h", false);
++        invertV = base::GetBoolProperty("persist.sys.pocketds.gyro_invert_v", false);
++        nextRead = now + 500000000;
++    }
++    const bool uncalibrated = event.type == SENSOR_TYPE_GYROSCOPE_UNCALIBRATED;
++    if (invertH) {
++        event.data[1] = -event.data[1];
++        if (uncalibrated) event.data[4] = -event.data[4];
++    }
++    if (invertV) {
++        event.data[0] = -event.data[0];
++        if (uncalibrated) event.data[3] = -event.data[3];
++    }
++}
++
+ status_t SensorService::SensorEventConnection::sendEvents(
+         sensors_event_t const* buffer, size_t numEvents,
+         sensors_event_t* scratch,
+@@ -375,6 +405,7 @@
+                     // the AppOp.
+                     if (hasSensorAccess() && noteOpIfRequired(buffer[i])) {
+                         scratch[count++] = buffer[i];
++                        pocketdsInvertGyro(scratch[count - 1]);
+                     }
+                 }
+                 i++;

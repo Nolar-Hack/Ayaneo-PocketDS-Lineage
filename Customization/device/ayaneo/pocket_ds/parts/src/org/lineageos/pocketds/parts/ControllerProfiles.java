@@ -34,6 +34,9 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
     static final String PROP_XY = "persist.sys.pocketds.swap_xy";
     static final String PROP_ZONE = "persist.sys.pocketds.deadzone";
     static final String PROP_MAP = "persist.sys.pocketds.keymap";
+    /** The gyroscope turned round: turning left or right (h), tilting up or down (v). */
+    static final String PROP_GYRO_H = "persist.sys.pocketds.gyro_invert_h";
+    static final String PROP_GYRO_V = "persist.sys.pocketds.gyro_invert_v";
     /** "scancode:presses per second,...": the buttons that fire again and again while held. */
     static final String PROP_TURBO = "persist.sys.pocketds.turbo";
     static final int[] TURBO_RATES = {0, 3, 5, 8, 10, 15, 20, 30};
@@ -75,11 +78,14 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
         int swapAb = -1;
         int swapXy = -1;
         int zone = -1;
+        int gyroH = -1;
+        int gyroV = -1;
         String map;
         String turbo;
 
         boolean empty() {
-            return swapAb < 0 && swapXy < 0 && zone < 0 && map == null && turbo == null;
+            return swapAb < 0 && swapXy < 0 && zone < 0 && gyroH < 0 && gyroV < 0 && map == null
+                    && turbo == null;
         }
 
         String encode() {
@@ -87,6 +93,8 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
             if (swapAb >= 0) sb.append("ab=").append(swapAb).append(';');
             if (swapXy >= 0) sb.append("xy=").append(swapXy).append(';');
             if (zone >= 0) sb.append("dz=").append(zone).append(';');
+            if (gyroH >= 0) sb.append("gh=").append(gyroH).append(';');
+            if (gyroV >= 0) sb.append("gv=").append(gyroV).append(';');
             if (map != null) sb.append("map=").append(map).append(';');
             if (turbo != null) sb.append("tb=").append(turbo).append(';');
             return sb.toString();
@@ -104,6 +112,8 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
                         case "ab": p.swapAb = Integer.parseInt(value); break;
                         case "xy": p.swapXy = Integer.parseInt(value); break;
                         case "dz": p.zone = Integer.parseInt(value); break;
+                        case "gh": p.gyroH = Integer.parseInt(value); break;
+                        case "gv": p.gyroV = Integer.parseInt(value); break;
                         case "map": p.map = value; break;
                         case "tb": p.turbo = value; break;
                         default: break;
@@ -124,6 +134,8 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
             if (swapXy == 1) add(sb, "X↔Y");
             if (swapXy == 0) add(sb, "X/Y normal");
             if (zone >= 0) add(sb, zone == 0 ? "no dead zone" : "dead zone " + zone + " %");
+            if (gyroH == 1) add(sb, "gyro ↔ inverted");
+            if (gyroV == 1) add(sb, "gyro ↕ inverted");
             if (map != null) {
                 final int n = map.isEmpty() ? 0 : map.split(",").length;
                 add(sb, n == 0 ? "no remap" : n + (n == 1 ? " remap" : " remaps"));
@@ -274,6 +286,8 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
         p.swapAb = SystemProperties.getBoolean(PROP_AB, false) ? 1 : 0;
         p.swapXy = SystemProperties.getBoolean(PROP_XY, false) ? 1 : 0;
         p.zone = Math.max(0, SystemProperties.getInt(PROP_ZONE, 0));
+        p.gyroH = SystemProperties.getBoolean(PROP_GYRO_H, false) ? 1 : 0;
+        p.gyroV = SystemProperties.getBoolean(PROP_GYRO_V, false) ? 1 : 0;
         p.map = SystemProperties.get(PROP_MAP, "");
         p.turbo = SystemProperties.get(PROP_TURBO, "");
         return p;
@@ -283,6 +297,8 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
         SystemProperties.set(PROP_AB, p.swapAb == 1 ? "true" : "false");
         SystemProperties.set(PROP_XY, p.swapXy == 1 ? "true" : "false");
         SystemProperties.set(PROP_ZONE, Integer.toString(Math.max(0, p.zone)));
+        SystemProperties.set(PROP_GYRO_H, p.gyroH == 1 ? "true" : "false");
+        SystemProperties.set(PROP_GYRO_V, p.gyroV == 1 ? "true" : "false");
         SystemProperties.set(PROP_MAP, p.map == null ? "" : p.map);
         SystemProperties.set(PROP_TURBO, p.turbo == null ? "" : p.turbo);
     }
@@ -327,6 +343,8 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
         effective.swapAb = wanted.swapAb >= 0 ? wanted.swapAb : general.swapAb;
         effective.swapXy = wanted.swapXy >= 0 ? wanted.swapXy : general.swapXy;
         effective.zone = wanted.zone >= 0 ? wanted.zone : general.zone;
+        effective.gyroH = wanted.gyroH >= 0 ? wanted.gyroH : general.gyroH;
+        effective.gyroV = wanted.gyroV >= 0 ? wanted.gyroV : general.gyroV;
         effective.map = wanted.map != null ? wanted.map : general.map;
         effective.turbo = wanted.turbo != null ? wanted.turbo : general.turbo;
         write(effective);
