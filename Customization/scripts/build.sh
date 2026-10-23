@@ -185,43 +185,11 @@ phase_copy() {
     ok "Copied"
 }
 
-# Source patches kept in this repo (survive a repo sync): patches/<project path>/*.patch,
-# applied once to the matching LineageOS project; already-applied patches are skipped.
-apply_patches() {
-    local dir proj p i top
-    local -a list
-    while IFS= read -r dir; do
-        proj="${dir#"$REPO_DIR/patches/"}"
-        list=()
-        while IFS= read -r -d '' p; do list+=("$p"); done \
-            < <(find "$dir" -maxdepth 1 -name '*.patch' -print0 | sort -z)
-        # Patches of a project build on each other (0013 changes lines of 0003): a patch can no
-        # longer be reversed once a later one touched the same lines. The last patch that can be
-        # reversed is the last applied one, and every patch before it is applied too.
-        top=-1
-        for ((i = ${#list[@]} - 1; i >= 0; i--)); do
-            if git -C "$SRC_DIR/$proj" apply --reverse --check "${list[i]}" &>/dev/null; then
-                top=$i
-                break
-            fi
-        done
-        for i in "${!list[@]}"; do
-            p="${list[i]}"
-            if (( i <= top )); then
-                info "Already applied: $proj/$(basename "$p")"
-            elif git -C "$SRC_DIR/$proj" apply --check "$p" &>/dev/null; then
-                if [[ -n "${DRY_RUN:-}" ]]; then
-                    info "Would apply: $proj/$(basename "$p")"
-                else
-                    git -C "$SRC_DIR/$proj" apply "$p"
-                    ok "Applied: $proj/$(basename "$p")"
-                fi
-            else
-                die "Patch does not apply: $proj/$(basename "$p")"
-            fi
-        done
-    done < <(find "$REPO_DIR/patches" -name '*.patch' -printf '%h\n' 2>/dev/null | sort -u)
-}
+# Source patches kept in this repo (survive a repo sync): patches/<project path>/*.patch, one
+# patch for each feature. scripts/patches.sh applies them and notices an edited, removed or new
+# patch (see its header); `scripts/patches.sh status|check` tells what the tree has.
+# shellcheck source=patches.sh
+source "$SCRIPT_DIR/patches.sh"
 
 # Mount the raw images of the backup read-only, laid out like a device
 # (system-as-root), and point extract-files.py at it.

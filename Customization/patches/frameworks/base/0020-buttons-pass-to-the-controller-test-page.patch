@@ -1,0 +1,22 @@
+Subject: [PATCH] PhoneWindowManager: the console buttons go to the app while the controller test is open
+
+While persist.sys.pocketds.buttons_test is true (set by the Test and calibration page of PocketDS
+Extra while it is in front), interceptPocketDsKey takes no key: M, Home, Swap, FPS and Profile reach
+the page, which lights them on the drawing of the console, instead of opening the overlay or
+swapping the screens. The page puts the property back to false when it leaves.
+
+diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.java b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+--- a/services/core/java/com/android/server/policy/PhoneWindowManager.java
++++ b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+@@ -4773,6 +4773,11 @@
+      * @return true when the key was taken
+      */
+     private boolean interceptPocketDsKey(KeyEvent event) {
++        // While PocketDS Extra tests or calibrates the controller the buttons go to its page
++        // (it lights them on the drawing of the console) instead of doing their job.
++        if (SystemProperties.getBoolean("persist.sys.pocketds.buttons_test", false)) {
++            return false;
++        }
+         final int code = event.getKeyCode();
+         if (code != POCKETDS_KEY_SWAP && code != POCKETDS_KEY_OVERLAY
+                 && code != POCKETDS_KEY_HOME && code != POCKETDS_KEY_PROFILE

@@ -1,0 +1,156 @@
+Subject: [PATCH] inputflinger: turbo (rapid fire) for the buttons of the Ayaneo Pocket DS controller
+
+persist.sys.pocketds.turbo ("scancode:rate,..." with a rate of 1 to 30 presses per second, set by
+PocketDS Extra, per controller profile) makes a button of "AYANEO Controller" that is held down
+release and press itself again at that rate, for every app, with no reboot. The cycle starts at the
+physical press and stops at the physical release (no extra key up when the button is already
+released then). A button that is not in the list behaves as usual.
+
+diff --git a/services/inputflinger/reader/mapper/KeyboardInputMapper.cpp b/services/inputflinger/reader/mapper/KeyboardInputMapper.cpp
+--- a/services/inputflinger/reader/mapper/KeyboardInputMapper.cpp
++++ b/services/inputflinger/reader/mapper/KeyboardInputMapper.cpp
+@@ -21,6 +21,7 @@
+ #include "KeyboardInputMapper.h"
+ 
+ #include <android-base/properties.h>
++#include <climits>
+ #include <ftl/enum.h>
+ #include <input/KeyboardClassifier.h>
+ #include <ui/Rotation.h>
+@@ -283,6 +284,26 @@
+     return out;
+ }
+ 
++// Ayaneo Pocket DS: persist.sys.pocketds.turbo, "scancode:rate,scancode:rate...", gives the number of
++// presses per second (1 to 30) of the buttons held down in turbo mode; a button that is not in the
++// list, or has 0, behaves as usual.
++static int32_t turboRate(int32_t scanCode) {
++    const std::string turbo = base::GetProperty("persist.sys.pocketds.turbo", "");
++    size_t pos = 0;
++    while (pos < turbo.size()) {
++        size_t end = turbo.find(',', pos);
++        if (end == std::string::npos) end = turbo.size();
++        const std::string pair = turbo.substr(pos, end - pos);
++        const size_t colon = pair.find(':');
++        if (colon != std::string::npos && atoi(pair.substr(0, colon).c_str()) == scanCode) {
++            const int32_t rate = atoi(pair.substr(colon + 1).c_str());
++            return rate < 1 ? 0 : (rate > 30 ? 30 : rate);
++        }
++        pos = end + 1;
++    }
++    return 0;
++}
++
+ std::list<NotifyArgs> KeyboardInputMapper::processKey(nsecs_t when, nsecs_t readTime, bool down,
+                                                       int32_t scanCode, int32_t usageCode) {
+     std::list<NotifyArgs> out;
+@@ -425,6 +446,39 @@
+         policyFlags |= POLICY_FLAG_DISABLE_KEY_REPEAT;
+     }
+ 
++    // Ayaneo Pocket DS, turbo: a new press of a button in turbo mode starts the cycle (the timeout
++    // below releases and presses it again); its physical release ends it, and sends no key up when
++    // the button is already released at that moment.
++    if (getDeviceName().rfind("AYANEO Controller", 0) == 0) {
++        if (down && !keyDownIndex) {
++            const int32_t rate = turboRate(scanCode);
++            if (rate > 0) {
++                Turbo turbo;
++                turbo.scanCode = scanCode;
++                turbo.keyCode = keyCode;
++                turbo.flags = flags;
++                turbo.metaState = keyMetaState;
++                turbo.policyFlags = policyFlags;
++                turbo.downTime = downTime;
++                turbo.halfPeriod = 1000000000LL / (2 * rate);
++                turbo.nextToggle = when + turbo.halfPeriod;
++                turbo.pressed = true;
++                mTurbos.push_back(turbo);
++                getContext()->requestTimeoutAtTime(turbo.nextToggle);
++            }
++        } else if (!down) {
++            for (size_t i = 0; i < mTurbos.size(); i++) {
++                if (mTurbos[i].scanCode == scanCode) {
++                    const bool pressed = mTurbos[i].pressed;
++                    downTime = mTurbos[i].downTime; // the last press the apps saw
++                    mTurbos.erase(mTurbos.begin() + i);
++                    if (!pressed) return out;
++                    break;
++                }
++            }
++        }
++    }
++
+     out.emplace_back(NotifyKeyArgs(getContext()->getNextId(), when, readTime, deviceId,
+                                    getEventSource(), getDisplayId(), policyFlags,
+                                    down ? AKEY_EVENT_ACTION_DOWN : AKEY_EVENT_ACTION_UP, flags,
+@@ -432,6 +486,28 @@
+     return out;
+ }
+ 
++std::list<NotifyArgs> KeyboardInputMapper::timeoutExpired(nsecs_t when) {
++    std::list<NotifyArgs> out;
++    nsecs_t next = LLONG_MAX;
++    for (Turbo& turbo : mTurbos) {
++        if (turbo.nextToggle <= when) {
++            turbo.pressed = !turbo.pressed;
++            if (turbo.pressed) turbo.downTime = when;
++            out.emplace_back(NotifyKeyArgs(getContext()->getNextId(), when,
++                                           systemTime(SYSTEM_TIME_MONOTONIC), getDeviceId(),
++                                           getEventSource(), getDisplayId(), turbo.policyFlags,
++                                           turbo.pressed ? AKEY_EVENT_ACTION_DOWN
++                                                         : AKEY_EVENT_ACTION_UP,
++                                           turbo.flags, turbo.keyCode, turbo.scanCode,
++                                           turbo.metaState, turbo.downTime));
++            turbo.nextToggle = when + turbo.halfPeriod;
++        }
++        if (turbo.nextToggle < next) next = turbo.nextToggle;
++    }
++    if (next != LLONG_MAX) getContext()->requestTimeoutAtTime(next);
++    return out;
++}
++
+ std::optional<size_t> KeyboardInputMapper::findKeyDownIndex(int32_t scanCode) {
+     size_t n = mKeyDowns.size();
+     for (size_t i = 0; i < n; i++) {
+@@ -555,6 +631,7 @@
+                               mKeyDowns[i].downTime));
+     }
+     mKeyDowns.clear();
++    mTurbos.clear();
+     mMetaState = AMETA_NONE;
+     return out;
+ }
+diff --git a/services/inputflinger/reader/mapper/KeyboardInputMapper.h b/services/inputflinger/reader/mapper/KeyboardInputMapper.h
+--- a/services/inputflinger/reader/mapper/KeyboardInputMapper.h
++++ b/services/inputflinger/reader/mapper/KeyboardInputMapper.h
+@@ -39,6 +39,7 @@
+                                                     ConfigurationChanges changes) override;
+     [[nodiscard]] std::list<NotifyArgs> reset(nsecs_t when) override;
+     [[nodiscard]] std::list<NotifyArgs> process(const RawEvent& rawEvent) override;
++    [[nodiscard]] std::list<NotifyArgs> timeoutExpired(nsecs_t when) override;
+ 
+     int32_t getKeyCodeState(uint32_t sourceMask, int32_t keyCode) override;
+     int32_t getScanCodeState(uint32_t sourceMask, int32_t scanCode) override;
+@@ -70,6 +71,21 @@
+     int32_t mRotationMapOffset; // determines if and how volume keys rotate
+ 
+     std::vector<KeyDown> mKeyDowns{}; // keys that are down
++
++    // Ayaneo Pocket DS: a button of the controller held down in turbo mode is released and pressed
++    // again at the rate set for it (persist.sys.pocketds.turbo), until the physical button is up.
++    struct Turbo {
++        int32_t scanCode{};
++        int32_t keyCode{};
++        int32_t flags{};
++        int32_t metaState{};
++        uint32_t policyFlags{};
++        nsecs_t downTime{};
++        nsecs_t halfPeriod{}; // time spent pressed, and then released, in each cycle
++        nsecs_t nextToggle{};
++        bool pressed{};       // what the apps see now
++    };
++    std::vector<Turbo> mTurbos{};
+     int32_t mMetaState{};
+ 
+     HidUsageAccumulator mHidUsageAccumulator;
