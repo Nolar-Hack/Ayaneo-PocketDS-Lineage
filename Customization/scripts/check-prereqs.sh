@@ -53,18 +53,29 @@ else
     if [[ -t 0 && -t 1 && -z "${CHECK_PREREQS_NO_PROMPT:-}" ]] && command -v sudo >/dev/null 2>&1; then
         printf '  [MISSING] RAM + swap = %s GB, 90 GB are needed (the build is killed without it)
 ' "$((ram_gb + swap_gb))"
-        printf '            Create a %s GB swap file in %s now (needs sudo, removed later with: sudo swapoff %s && rm %s)? [y/N] ' \
-               "$add_gb" "$SWAPFILE" "$SWAPFILE" "$SWAPFILE"
+        # The file survives a reboot but swapon does not: an existing swap file is only switched on again.
+        reuse=false
+        if [[ -f "$SWAPFILE" ]] && [[ "$(sudo file -s "$SWAPFILE" 2>/dev/null)" == *"swap file"* ]]; then
+            reuse=true
+        fi
+        if $reuse; then
+            printf '            The swap file %s exists but is not active: switch it on (needs sudo)? [y/N] ' "$SWAPFILE"
+        else
+            printf '            Create a %s GB swap file in %s now (needs sudo, removed later with: sudo swapoff %s && rm %s)? [y/N] ' \
+                   "$add_gb" "$SWAPFILE" "$SWAPFILE" "$SWAPFILE"
+        fi
         read -r answer
         if [[ "$answer" == [yYoO]* ]]; then
-            if [[ "$(stat -f -c %T "$ROOT")" == btrfs ]]; then
+            if $reuse; then
+                sudo swapon "$SWAPFILE"
+            elif [[ "$(stat -f -c %T "$ROOT")" == btrfs ]]; then
                 sudo btrfs filesystem mkswapfile --size "${add_gb}G" "$SWAPFILE" && sudo swapon "$SWAPFILE"
             else
                 { sudo fallocate -l "${add_gb}G" "$SWAPFILE" || sudo dd if=/dev/zero of="$SWAPFILE" bs=1M count=$((add_gb * 1024)) status=none; } \
                     && sudo chmod 600 "$SWAPFILE" && sudo mkswap "$SWAPFILE" >/dev/null && sudo swapon "$SWAPFILE"
             fi
             swap_gb=$(( $(awk '/SwapTotal/ {print $2}' /proc/meminfo) / 1048576 ))
-            if (( ram_gb + swap_gb >= 90 )); then ok "swap file created: RAM ${ram_gb} GB + swap ${swap_gb} GB"
+            if (( ram_gb + swap_gb >= 90 )); then ok "swap file ready: RAM ${ram_gb} GB + swap ${swap_gb} GB"
             else bad "the swap file could not be activated" "$manual"; fi
         else
             bad "RAM + swap = $((ram_gb + swap_gb)) GB, 90 GB are needed" "$manual"

@@ -25,7 +25,14 @@ step()  { echo -e "${CYAN}[STEP]${NC} $*"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-OUT_DIR="${1:-$ROOT_DIR/../Backup/Original/stock-backups/backup-$(date +%Y%m%d-%H%M%S)}"
+# In the project the copy goes to Backup/Original/stock-backups; run on its own (the recovery/ folder
+# of the releases repository) it goes to a folder next to where you run it.
+if [[ -d "$ROOT_DIR/../Backup/Original" ]]; then
+    DEFAULT_OUT="$ROOT_DIR/../Backup/Original/stock-backups/backup-$(date +%Y%m%d-%H%M%S)"
+else
+    DEFAULT_OUT="./stock-backup-$(date +%Y%m%d-%H%M%S)"
+fi
+OUT_DIR="${1:-$DEFAULT_OUT}"
 
 command -v adb &>/dev/null || die "Required tool not found: adb"
 adb devices | grep -q 'device$' || die "No device found via adb"
