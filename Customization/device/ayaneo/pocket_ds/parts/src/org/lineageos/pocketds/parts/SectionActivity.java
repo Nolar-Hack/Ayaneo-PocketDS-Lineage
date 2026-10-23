@@ -47,10 +47,17 @@ public class SectionActivity extends Activity {
         return getIntent().getStringExtra(EXTRA_SECTION);
     }
 
+    private boolean mResumedBefore;
+
     @Override
     protected void onResume() {
         super.onResume();
         checkAccent();
+        // Back from the remapping of a profile: the list shows what was saved.
+        if (mResumedBefore && (CONTROLLER.equals(section()) || GAMES.equals(section()))) {
+            recreate();
+        }
+        mResumedBefore = true;
     }
 
     @Override
@@ -490,13 +497,16 @@ public class SectionActivity extends Activity {
         final boolean busy = UpdateService.running();
 
         if (Updates.restartPending(this)) {
+            updateSteps(ui, body, 3, 100);
             ui.actionRow(now, "🔄", Ui.GREEN, "Restart to finish the update",
                     "The new version is installed; it starts after the restart", () ->
                             getSystemService(android.os.PowerManager.class).reboot(null));
         } else if (busy) {
-            ui.row(now, "⏳", Ui.ORANGE, Updates.sState == Updates.APPLYING ? "Installing"
-                    : "Downloading", Updates.sMessage + (Updates.sPercent > 0
-                    ? " · " + Updates.sPercent + " %" : ""));
+            final boolean applying = Updates.sState == Updates.APPLYING;
+            ui.row(now, "⏳", Ui.ORANGE, applying ? "Installing" : "Downloading",
+                    Updates.sMessage + (Updates.sPercent > 0 ? " · " + Updates.sPercent + " %" : ""));
+            ui.progressBar(now, Updates.sPercent > 0 ? Updates.sPercent : -1, Ui.ORANGE);
+            updateSteps(ui, body, applying ? 2 : 1, Updates.sPercent);
         } else if (info != null) {
             final Updates.Pack pack = info.pick();
             ui.row(now, "✨", Ui.TEAL, "Version " + info.version + " available",
@@ -552,6 +562,23 @@ public class SectionActivity extends Activity {
         ui.note(body, "The console never restarts on its own: a notification and the button "
                 + "above wait for you. An update that cannot be installed leaves the current "
                 + "version untouched.");
+    }
+
+    /** The three steps of an update, each done, running or waiting (step = the one running). */
+    private void updateSteps(Ui ui, LinearLayout body, int step, int percent) {
+        final LinearLayout card = ui.card(body);
+        final String[] names = {"Download", "Install in the other system slot", "Restart"};
+        final String[] hints = {"The package is fetched from the release",
+                "Written beside the running system, which stays untouched",
+                "The new version starts after your restart"};
+        for (int i = 1; i <= 3; i++) {
+            final boolean done = i < step;
+            final String icon = done ? "✅" : i == step ? (i == 3 ? "🔄" : "⏳") : "⚪";
+            final String summary = i == step && i < 3 && percent > 0 ? hints[i - 1] + " · " + percent + " %"
+                    : done ? "Done" : hints[i - 1];
+            ui.row(card, icon, done ? Ui.GREEN : i == step ? Ui.ORANGE : Ui.BLUE,
+                    i + ". " + names[i - 1], summary);
+        }
     }
 
     private void editUpdateSource() {
@@ -729,7 +756,7 @@ public class SectionActivity extends Activity {
                                     name);
                             ControllerProfiles.assign(prefs, pkg, n.id);
                             changed.run();
-                            controllerDialog(prefs, n, changed);
+                            openRemap(n);
                         });
                     } else {
                         ControllerProfiles.assign(prefs, pkg, list.get(which - 1).id);
@@ -764,6 +791,14 @@ public class SectionActivity extends Activity {
                 "What is used when an app has no profile: tap a button on a drawing of the "
                         + "console", () -> startActivity(new Intent(this,
                         ControllerMapActivity.class)));
+        final LinearLayout tools = ui.card(page);
+        ui.actionRow(tools, "🎯", Ui.ORANGE, "Test the buttons",
+                "The console lights each button and stick as you press it", () ->
+                        startActivity(new Intent(this, ControllerTestActivity.class)));
+        ui.actionRow(tools, "🧭", Ui.TEAL, "Calibration",
+                "Sticks, triggers and the button combination, step by step", () ->
+                        startActivity(new Intent(this, ControllerTestActivity.class)
+                                .putExtra(ControllerTestActivity.EXTRA_CALIBRATE, true)));
         ui.section(page, "Profiles");
         final LinearLayout card = ui.card(page);
         final java.util.List<ControllerProfiles.Named> list = ControllerProfiles.all(prefs);
@@ -771,80 +806,23 @@ public class SectionActivity extends Activity {
             final int uses = ControllerProfiles.usedBy(prefs, n.id);
             ui.actionRow(card, "🕹️", Ui.PURPLE, n.name, n.profile.summary()
                     + (uses == 0 ? "" : " · " + uses + (uses == 1 ? " app" : " apps")),
-                    () -> controllerDialog(prefs, n, this::recreate));
+                    () -> openRemap(n));
         }
-        ui.actionRow(card, "➕", Ui.GREEN, "New profile", "Give it a name, then set the buttons",
+        ui.actionRow(card, "➕", Ui.GREEN, "New profile", "Give it a name, then remap its buttons",
                 () -> nameDialog("New controller profile", "", name -> {
                     final ControllerProfiles.Named n = ControllerProfiles.create(prefs, name);
-                    controllerDialog(prefs, n, this::recreate);
+                    openRemap(n);
                 }));
         ui.note(page, list.isEmpty() ? "No profile yet. Create one, then pick it for an app "
                 + "in Profiles." : "A profile only changes what you set in it; the rest stays "
                 + "as in Every app.");
     }
 
-    private static final int[] ZONES = {-1, 0, 5, 10, 15, 20, 25};
-
-    /** The setup of a named profile: each line goes to its next value when tapped. */
-    private void controllerDialog(android.content.SharedPreferences prefs,
-            ControllerProfiles.Named n, Runnable changed) {
-        final ControllerProfiles.Profile p = n.profile;
-        final String[] items = {
-            "Swap A ↔ B: " + choiceText(p.swapAb),
-            "Swap X ↔ Y: " + choiceText(p.swapXy),
-            "Dead zone: " + (p.zone < 0 ? "Same as everywhere"
-                    : p.zone == 0 ? "None" : p.zone + " %"),
-            "Button remapping on the drawing: " + (p.map == null ? "Same as everywhere"
-                    : p.map.isEmpty() ? "None" : p.map.split(",").length + " remaps"),
-            "Rename", "Delete this profile"};
-        new android.app.AlertDialog.Builder(this).setTitle(n.name)
-                .setItems(items, (d, which) -> {
-                    switch (which) {
-                        case 0: p.swapAb = nextChoice(p.swapAb); break;
-                        case 1: p.swapXy = nextChoice(p.swapXy); break;
-                        case 2: {
-                            int i = 0;
-                            while (i < ZONES.length && ZONES[i] != p.zone) i++;
-                            p.zone = ZONES[(i + 1) % ZONES.length];
-                            break;
-                        }
-                        case 3:
-                            ControllerProfiles.update(prefs, n);
-                            startActivity(new Intent(this, ControllerMapActivity.class)
-                                    .putExtra(ControllerMapActivity.EXTRA_PROFILE, n.id)
-                                    .putExtra(ControllerMapActivity.EXTRA_LABEL, n.name));
-                            return;
-                        case 4:
-                            nameDialog("Rename the profile", n.name, name -> {
-                                if (!name.trim().isEmpty()) n.name = name.trim();
-                                ControllerProfiles.update(prefs, n);
-                                changed.run();
-                                controllerDialog(prefs, n, changed);
-                            });
-                            return;
-                        default:
-                            new android.app.AlertDialog.Builder(this)
-                                    .setTitle("Delete " + n.name + "?")
-                                    .setMessage("The apps that use it go back to the setup of "
-                                            + "Every app.")
-                                    .setPositiveButton("Delete", (dd, ww) -> {
-                                        ControllerProfiles.delete(prefs, n.id);
-                                        changed.run();
-                                    }).setNegativeButton("Cancel", null).show();
-                            return;
-                    }
-                    ControllerProfiles.update(prefs, n);
-                    changed.run();
-                    controllerDialog(prefs, n, changed);
-                }).setPositiveButton("Done", null).show();
-    }
-
-    private static String choiceText(int value) {
-        return value < 0 ? "Same as everywhere" : value == 1 ? "On" : "Off";
-    }
-
-    private static int nextChoice(int value) {
-        return value < 0 ? 1 : value == 1 ? 0 : -1;
+    /** A controller profile opens straight on the remapping of its buttons. */
+    private void openRemap(ControllerProfiles.Named n) {
+        startActivity(new Intent(this, ControllerMapActivity.class)
+                .putExtra(ControllerMapActivity.EXTRA_PROFILE, n.id)
+                .putExtra(ControllerMapActivity.EXTRA_LABEL, n.name));
     }
 
     private static String profileText(android.content.SharedPreferences prefs, String key) {

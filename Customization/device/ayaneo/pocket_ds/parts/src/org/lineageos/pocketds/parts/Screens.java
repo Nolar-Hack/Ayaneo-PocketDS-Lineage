@@ -130,7 +130,10 @@ final class Screens {
     static void applyFocusLock(Context context, boolean force) {
         final String lock = PartsPrefs.get(context).getString(PartsPrefs.FOCUS_LOCK, FOCUS_AUTO);
         String value;
-        if (FOCUS_TOP.equals(lock) || FOCUS_BOTTOM.equals(lock)) {
+        if (ControllerTestActivity.sDisplay >= 0) {
+            // The test page is open: the controller goes to it, whatever the lock chosen.
+            value = Integer.toString(ControllerTestActivity.sDisplay);
+        } else if (FOCUS_TOP.equals(lock) || FOCUS_BOTTOM.equals(lock)) {
             value = "none";
             final int id = displayId(context, FOCUS_TOP.equals(lock) ? TOP : BOTTOM);
             if (id != Display.INVALID_DISPLAY) value = Integer.toString(id);

@@ -116,23 +116,19 @@ public class SecondHomeActivity extends Activity {
         bar.setGravity(Gravity.CENTER_VERTICAL);
         final LinearLayout heading = new LinearLayout(this);
         heading.setOrientation(LinearLayout.VERTICAL);
-        heading.addView(ui.label("Applications", 28, 0xFFE9ECF2, true));
-        heading.addView(ui.label("Tap an app, then pick a screen", 14, 0xFF98A2B3,
-                false));
+        // One line each: the title never wraps, whatever the buttons next to it.
+        final TextView title = ui.label("Applications", 26, 0xFFE9ECF2, true);
+        title.setSingleLine(true);
+        heading.addView(title);
+        final TextView hint = ui.label("Tap an app, then pick a screen", 14, 0xFF98A2B3, false);
+        hint.setSingleLine(true);
+        heading.addView(hint);
         bar.addView(heading, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT,
                 1f));
-        bar.addView(headerButton("⇄  Swap screens", true, 0, v -> {
+        bar.addView(headerButton("⇄  Swap", true, 0, v -> {
             Screens.setSwapped(this, !Screens.isSwapped(this));
         }));
-        final Updates.Info update = Updates.available(this);
-        if (update != null || Updates.restartPending(this)) {
-            bar.addView(headerButton(update != null ? "⬆  Update " + update.version
-                    : "⬆  Restart to update", true, 0, v -> startActivity(
-                    new Intent(this, SectionActivity.class)
-                            .putExtra(SectionActivity.EXTRA_SECTION, SectionActivity.UPDATES)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))));
-        }
-        bar.addView(headerButton("Running apps", false, 0, v -> showRunning()));
+        bar.addView(headerButton("Running", false, 0, v -> showRunning()));
         bar.addView(headerButton("Settings", false, 0, v -> {
             startActivity(new Intent(this, PartsSettingsActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -148,6 +144,21 @@ public class SecondHomeActivity extends Activity {
         }
         root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
+
+        // The update notice has a row of its own: in the header it left no room for the title,
+        // which wrapped letter by letter and squeezed the list of apps to nothing.
+        final Updates.Info update = Updates.available(this);
+        if (update != null || Updates.restartPending(this)) {
+            final TextView notice = headerButton(update != null ? "⬆  Update " + update.version
+                    + " available" : "⬆  Restart to finish the update", true, 0, v -> startActivity(
+                    new Intent(this, SectionActivity.class)
+                            .putExtra(SectionActivity.EXTRA_SECTION, SectionActivity.UPDATES)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
+            final LinearLayout.LayoutParams noticeParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            noticeParams.topMargin = dp(10);
+            root.addView(notice, noticeParams);
+        }
 
         mGrid = new PagedGrid(this, getResources().getDisplayMetrics().widthPixels / 1024f);
         root.addView(mGrid, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0,

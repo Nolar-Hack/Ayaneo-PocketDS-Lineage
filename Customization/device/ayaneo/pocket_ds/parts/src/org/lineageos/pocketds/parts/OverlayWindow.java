@@ -172,6 +172,17 @@ final class OverlayWindow extends android.content.ContextWrapper {
         mThread.start();
         mWorker = new Handler(mThread.getLooper());
         mWorker.post(mSample);
+        // A setting changed elsewhere (the swap button, the other screen) shows at once.
+        mSettingsObserver = new android.database.ContentObserver(mMain) {
+            @Override
+            public void onChange(boolean selfChange) {
+                runLive();
+            }
+        };
+        getContentResolver().registerContentObserver(Settings.Global.CONTENT_URI, true,
+                mSettingsObserver);
+        getContentResolver().registerContentObserver(Settings.System.CONTENT_URI, true,
+                mSettingsObserver);
     }
 
     /** Only a note in the log when the window has no input focus shortly after opening. */
@@ -188,6 +199,7 @@ final class OverlayWindow extends android.content.ContextWrapper {
         if (sInstance == this) sInstance = null;
         if (mWorker != null) mWorker.removeCallbacks(mSample);
         if (mThread != null) mThread.quitSafely();
+        if (mSettingsObserver != null) getContentResolver().unregisterContentObserver(mSettingsObserver);
         mMain.removeCallbacksAndMessages(null);
         try {
             if (mRoot != null && mRoot.isAttachedToWindow()) mWindowManager.removeView(mRoot);
@@ -405,8 +417,7 @@ final class OverlayWindow extends android.content.ContextWrapper {
 
     private void showPage(int page) {
         mPage = page;
-        mRemapListening = false;
-        mRemapScan = 0;
+        mLive.clear();
         mFpsValue = null;
         mNowTitle = null;
         mFanChips.clear();
@@ -865,29 +876,72 @@ final class OverlayWindow extends android.content.ContextWrapper {
     }
 
     /** The on/off switch of the mockup: a 46x26 track with a round knob. */
+    private final class Toggle extends android.widget.FrameLayout {
+        boolean state;
+        private final View mKnob;
+
+        Toggle(boolean on, java.util.function.Consumer<Boolean> set) {
+            super(OverlayWindow.this);
+            state = on;
+            mKnob = new View(OverlayWindow.this);
+            final android.widget.FrameLayout.LayoutParams knobParams =
+                    new android.widget.FrameLayout.LayoutParams(u(20), u(20));
+            knobParams.topMargin = u(3);
+            addView(mKnob, knobParams);
+            setLayoutParams(new LinearLayout.LayoutParams(u(46), u(26)));
+            paint();
+            setOnClickListener(v -> {
+                state = !state;
+                paint();
+                set.accept(state);
+            });
+        }
+
+        /** Follows a change made elsewhere (the button of the console, another screen). */
+        void setOn(boolean on) {
+            state = on;
+            paint();
+        }
+
+        private void paint() {
+            setBackground(box(state ? ACCENT : LINE, 0, 13));
+            mKnob.setBackground(box(state ? 0xFFFFFFFF : DIM, 0, 10));
+            ((android.widget.FrameLayout.LayoutParams) mKnob.getLayoutParams()).leftMargin =
+                    u(state ? 23 : 3);
+            mKnob.requestLayout();
+        }
+    }
+
     private View toggle(boolean on, java.util.function.Consumer<Boolean> set) {
-        final android.widget.FrameLayout track = new android.widget.FrameLayout(this);
-        final View knob = new View(this);
-        final boolean[] state = {on};
-        final Runnable paint = () -> {
-            track.setBackground(box(state[0] ? ACCENT : LINE, 0, 13));
-            knob.setBackground(box(state[0] ? 0xFFFFFFFF : DIM, 0, 10));
-            ((android.widget.FrameLayout.LayoutParams) knob.getLayoutParams()).leftMargin =
-                    u(state[0] ? 23 : 3);
-            knob.requestLayout();
-        };
-        final android.widget.FrameLayout.LayoutParams knobParams =
-                new android.widget.FrameLayout.LayoutParams(u(20), u(20));
-        knobParams.topMargin = u(3);
-        track.addView(knob, knobParams);
-        track.setLayoutParams(new LinearLayout.LayoutParams(u(46), u(26)));
-        paint.run();
-        track.setOnClickListener(v -> {
-            state[0] = !state[0];
-            paint.run();
-            set.accept(state[0]);
+        return new Toggle(on, set);
+    }
+
+    // ---- live pages: what changes elsewhere (button of the console, other screen, other tab) is
+    // read again while the overlay is open
+
+    private final List<Runnable> mLive = new ArrayList<>();
+    private android.database.ContentObserver mSettingsObserver;
+
+    private void runLive() {
+        for (Runnable refresh : new ArrayList<>(mLive)) {
+            try {
+                refresh.run();
+            } catch (RuntimeException e) {
+                // one broken refresh must not stop the others
+            }
+        }
+    }
+
+    /** A switch that follows its setting: {@code get} is read again with every refresh. */
+    private LinearLayout liveSwitchRow(String title, String subtitle,
+            java.util.function.Supplier<Boolean> get, java.util.function.Consumer<Boolean> set) {
+        final LinearLayout row = switchRow(title, subtitle, get.get(), set);
+        final Toggle toggle = (Toggle) row.getChildAt(1);
+        mLive.add(() -> {
+            final boolean now = get.get();
+            if (toggle.state != now) toggle.setOn(now);
         });
-        return track;
+        return row;
     }
 
     private LinearLayout switchRow(String title, String subtitle, boolean on,
@@ -986,84 +1040,8 @@ final class OverlayWindow extends android.content.ContextWrapper {
 
     // ---- page: controller
 
-    /** A round stick pad: crosshair, the dead zone of the controller (dotted), the live point. */
-    private final class StickPad extends View {
-        private final android.graphics.Paint mPaint = new android.graphics.Paint(
-                android.graphics.Paint.ANTI_ALIAS_FLAG);
-        private float mX;
-        private float mY;
-
-        StickPad(android.content.Context context) {
-            super(context);
-        }
-
-        void set(float x, float y) {
-            mX = x;
-            mY = y;
-            invalidate();
-        }
-
-        @Override
-        protected void onDraw(android.graphics.Canvas canvas) {
-            final float cx = getWidth() / 2f;
-            final float cy = getHeight() / 2f;
-            final float radius = Math.min(cx, cy) - u(2);
-            mPaint.setStyle(android.graphics.Paint.Style.FILL);
-            mPaint.setColor(0xFF14181F);
-            canvas.drawCircle(cx, cy, radius, mPaint);
-            mPaint.setStyle(android.graphics.Paint.Style.STROKE);
-            mPaint.setStrokeWidth(Math.max(1, u(1.5f)));
-            mPaint.setColor(0xFF3A4252);
-            canvas.drawCircle(cx, cy, radius, mPaint);
-            mPaint.setStrokeWidth(Math.max(1, u(1)));
-            mPaint.setColor(0xFF2A303B);
-            canvas.drawLine(cx - radius, cy, cx + radius, cy, mPaint);
-            canvas.drawLine(cx, cy - radius, cx, cy + radius, mPaint);
-            // The dead zone the controller reports (flat 4095 of 32768).
-            mPaint.setPathEffect(new android.graphics.DashPathEffect(
-                    new float[] {u(3), u(4)}, 0));
-            mPaint.setColor(0xFF4A5366);
-            canvas.drawCircle(cx, cy, radius * 0.125f, mPaint);
-            mPaint.setPathEffect(null);
-            mPaint.setStyle(android.graphics.Paint.Style.FILL);
-            mPaint.setColor(0x405B9DFF);
-            final float px = cx + mX * (radius - u(9));
-            final float py = cy + mY * (radius - u(9));
-            canvas.drawCircle(px, py, u(13), mPaint);
-            mPaint.setColor(ACCENT);
-            canvas.drawCircle(px, py, u(8), mPaint);
-        }
-    }
-
-    private StickPad mLeftPad;
-    private StickPad mRightPad;
-    private TextView mLeftStick;
-    private TextView mRightStick;
-    private LinearLayout mLeftTrigger;
-    private LinearLayout mRightTrigger;
-    private final java.util.Map<Integer, TextView> mFaceButtons = new java.util.HashMap<>();
-
+    /** The sticks are not shown here: the live test is in the Settings (Controller). */
     boolean onGenericMotionEvent(android.view.MotionEvent event) {
-        if (mPage == 1 && mLeftPad != null
-                && (event.getSource() & android.view.InputDevice.SOURCE_JOYSTICK) != 0) {
-            final float lx = event.getAxisValue(android.view.MotionEvent.AXIS_X);
-            final float ly = event.getAxisValue(android.view.MotionEvent.AXIS_Y);
-            final float rx = event.getAxisValue(android.view.MotionEvent.AXIS_Z);
-            final float ry = event.getAxisValue(android.view.MotionEvent.AXIS_RZ);
-            final float lt = event.getAxisValue(android.view.MotionEvent.AXIS_LTRIGGER);
-            final float rt = event.getAxisValue(android.view.MotionEvent.AXIS_RTRIGGER);
-            mLeftPad.set(lx, ly);
-            mRightPad.set(rx, ry);
-            mLeftStick.setText(String.format(Locale.US, "x %+.2f  ·  y %+.2f", lx, ly));
-            mRightStick.setText(String.format(Locale.US, "x %+.2f  ·  y %+.2f", rx, ry));
-            setBar(mLeftTrigger, lt);
-            setBar(mRightTrigger, rt);
-            calibrationFeed(lx, ly, rx, ry, lt, rt);
-            // The D-pad is a hat axis, not a key: left is -1.
-            mCalHatLeft = event.getAxisValue(android.view.MotionEvent.AXIS_HAT_X) < -0.5f;
-            calibrationCheckHold();
-            return true;
-        }
         return false;
     }
 
@@ -1078,270 +1056,36 @@ final class OverlayWindow extends android.content.ContextWrapper {
         return null;
     }
 
-    private TextView mCalStatus;
-    private TextView mCalButton;
-    private int mCalStep;                       // 0 idle, 1 sticks, 2 triggers, 3 buttons, 4 done
-    private final double[] mCalAngle = new double[2];
-    private final double[] mCalTurn = new double[2];
-    private boolean mCalLeftTrigger;
-    private boolean mCalRightTrigger;
-    private long mCalHoldSince;
-    private final java.util.Set<Integer> mCalKeys = new java.util.HashSet<>();
-
-    private void calibrationStart() {
-        mCalStep = 1;
-        mCalAngle[0] = mCalAngle[1] = Double.NaN;
-        mCalTurn[0] = mCalTurn[1] = 0;
-        mCalLeftTrigger = mCalRightTrigger = false;
-        mCalHoldSince = 0;
-        mCalKeys.clear();
-        calibrationShow();
-    }
-
-    private void calibrationShow() {
-        if (mCalStatus == null) return;
-        final int turnsLeft = (int) Math.round(Math.min(100, mCalTurn[0] / (4 * Math.PI) * 100));
-        final int turnsRight = (int) Math.round(Math.min(100, mCalTurn[1] / (4 * Math.PI) * 100));
-        switch (mCalStep) {
-            case 1:
-                mCalStatus.setText("1 / 3   Rotate both sticks two full turns, any direction.\n"
-                        + "Left " + turnsLeft + " %   ·   Right " + turnsRight + " %");
-                mCalButton.setText("Cancel");
-                break;
-            case 2:
-                mCalStatus.setText("2 / 3   Press both triggers all the way down.\n"
-                        + "L2 " + (mCalLeftTrigger ? "done" : "…") + "   ·   R2 "
-                        + (mCalRightTrigger ? "done" : "…"));
-                mCalButton.setText("Cancel");
-                break;
-            case 3:
-                mCalStatus.setText("3 / 3   Hold L1, R1, D-pad left and B together for 3 seconds.");
-                mCalButton.setText("Cancel");
-                break;
-            case 4:
-                mCalStatus.setText("Calibration done. The controller keeps it by itself.");
-                mCalButton.setText("Calibrate again");
-                break;
-            default:
-                mCalStatus.setText("Rotate the sticks, press the triggers, then hold a button "
-                        + "combination: the controller learns its range by itself.");
-                mCalButton.setText("Start calibration");
-        }
-    }
-
-    private void calibrationFeed(float lx, float ly, float rx, float ry, float lt, float rt) {
-        if (mCalStep == 1) {
-            final float[][] sticks = {{lx, ly}, {rx, ry}};
-            for (int i = 0; i < 2; i++) {
-                if (Math.hypot(sticks[i][0], sticks[i][1]) < 0.6) continue;
-                final double angle = Math.atan2(sticks[i][1], sticks[i][0]);
-                if (!Double.isNaN(mCalAngle[i])) {
-                    double delta = angle - mCalAngle[i];
-                    while (delta > Math.PI) delta -= 2 * Math.PI;
-                    while (delta < -Math.PI) delta += 2 * Math.PI;
-                    mCalTurn[i] += Math.abs(delta);
-                }
-                mCalAngle[i] = angle;
-            }
-            if (mCalTurn[0] >= 4 * Math.PI && mCalTurn[1] >= 4 * Math.PI) mCalStep = 2;
-            calibrationShow();
-        } else if (mCalStep == 2) {
-            if (lt > 0.95f) mCalLeftTrigger = true;
-            if (rt > 0.95f) mCalRightTrigger = true;
-            if (mCalLeftTrigger && mCalRightTrigger) mCalStep = 3;
-            calibrationShow();
-        }
-    }
-
     boolean dispatchKeyEvent(android.view.KeyEvent event) {
         final int code = event.getKeyCode();
-        if (mPage == 1 && mRemapListening && event.getAction() == android.view.KeyEvent.ACTION_DOWN
-                && event.getScanCode() != 0 && event.getDevice() != null
-                && event.getDevice().getName().startsWith("AYANEO")) {
-            // The physical button is told by its scan code, which no remap changes.
-            mRemapListening = false;
-            mRemapScan = event.getScanCode();
-            paintRemap();
-            return true;
-        }
-        if (mPage == 1) {
-            final TextView face = mFaceButtons.get(code);
-            if (face != null) {
-                final boolean down = event.getAction() == android.view.KeyEvent.ACTION_DOWN;
-                face.setBackground(down ? box(ACCENT, ACCENT, 29) : box(0xFF232832, 0xFF3A4252, 29));
-                face.setTextColor(down ? ON_ACCENT : TEXT);
-            }
-        }
-        if (mPage == 1 && mCalStep == 3) {
-            // By the scan codes of the controller (L1, R1, B), so that a swapped A / B does not
-            // matter.
-            final int scan = event.getScanCode();
-            if (scan == SCAN_L1 || scan == SCAN_R1 || scan == SCAN_B) {
-                if (event.getAction() == android.view.KeyEvent.ACTION_DOWN) mCalKeys.add(scan);
-                else mCalKeys.remove(scan);
-                calibrationCheckHold();
-                return true;
-            }
+        if (mPage == 2 && (code == android.view.KeyEvent.KEYCODE_VOLUME_UP
+                || code == android.view.KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            // The system changes the volume after the key; read it again right away.
+            mMain.postDelayed(this::refreshVolume, 150);
         }
         return false;
     }
 
-    private static final int SCAN_L1 = 310;   // BTN_TL
-    private static final int SCAN_R1 = 311;   // BTN_TR
-    private static final int SCAN_B = 305;    // BTN_EAST
-    private boolean mCalHatLeft;
-
-    /** Step 3: L1, R1, B and D-pad left together, for 3 seconds. */
-    private void calibrationCheckHold() {
-        if (mCalStep != 3) return;
-        if (mCalKeys.size() == 3 && mCalHatLeft) {
-            if (mCalHoldSince == 0) {
-                mCalHoldSince = System.currentTimeMillis();
-                mMain.postDelayed(mCalHoldCheck, 3100);
-                mCalStatus.setText("3 / 3   Keep holding L1, R1, D-pad left and B…");
-            }
-        } else if (mCalHoldSince != 0) {
-            mCalHoldSince = 0;
-            mMain.removeCallbacks(mCalHoldCheck);
-            calibrationShow();
-        }
-    }
-
-    private final Runnable mCalHoldCheck = new Runnable() {
-        @Override
-        public void run() {
-            if (mCalStep == 3 && mCalHoldSince != 0
-                    && System.currentTimeMillis() - mCalHoldSince >= 3000) {
-                mCalStep = 4;
-                calibrationShow();
-            }
-        }
-    };
-
-    private TextView faceButton(String label, int keyCode) {
-        final TextView button = text(label, 20, TEXT, true);
-        button.setGravity(Gravity.CENTER);
-        button.setBackground(box(0xFF232832, 0xFF3A4252, 29));
-        mFaceButtons.put(keyCode, button);
-        return button;
-    }
-
     private void buildController(LinearLayout page) {
-        mFaceButtons.clear();
-        final LinearLayout[] cols = columns(page, 1.12f, 1f, 16);
-        // Sticks
-        final LinearLayout sticks = columnCard(cols[0], 0);
-        sticks.addView(titleRow("Sticks", "Live position"));
-        final LinearLayout pads = new LinearLayout(this);
-        mLeftPad = new StickPad(this);
-        mRightPad = new StickPad(this);
-        mLeftStick = text("x +0.00  ·  y +0.00", 14, TEXT, true);
-        mRightStick = text("x +0.00  ·  y +0.00", 14, TEXT, true);
-        for (int side = 0; side < 2; side++) {
-            final LinearLayout column = new LinearLayout(this);
-            column.setOrientation(LinearLayout.VERTICAL);
-            column.setGravity(Gravity.CENTER_HORIZONTAL);
-            column.addView(side == 0 ? mLeftPad : mRightPad, new LinearLayout.LayoutParams(u(190),
-                    u(190)));
-            column.addView(text(side == 0 ? "Left stick" : "Right stick", 14, DIM, false),
-                    fill(10));
-            column.addView(side == 0 ? mLeftStick : mRightStick, fill(2));
-            final LinearLayout.LayoutParams columnParams = new LinearLayout.LayoutParams(0,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            pads.addView(column, columnParams);
-        }
-        sticks.addView(pads, fill(14));
-        sticks.addView(text("Dotted circle: dead zone of the controller (12 %)", 14, DIM, false),
-                fill(12));
-        // Dead zone: the share of the travel of a stick that reads as 0
-        final int zoneNow = Math.max(0, Math.min(30,
-                android.os.SystemProperties.getInt("persist.sys.pocketds.deadzone", 0)));
-        final TextView zoneValue = text(zoneNow == 0 ? "None" : zoneNow + " %", 15, TEXT, true);
-        zoneValue.setGravity(Gravity.END);
-        final LinearLayout zoneRow = new LinearLayout(this);
-        zoneRow.setGravity(Gravity.CENTER_VERTICAL);
-        zoneRow.addView(text("Dead zone", 15, TEXT, true), new LinearLayout.LayoutParams(u(100),
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-        zoneRow.addView(slider(zoneNow, 30, new Changed() {
-            @Override
-            void changed(int value) {
-                android.os.SystemProperties.set("persist.sys.pocketds.deadzone",
-                        Integer.toString(value));
-                zoneValue.setText(value == 0 ? "None" : value + " %");
-            }
-        }), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        zoneRow.addView(zoneValue, new LinearLayout.LayoutParams(u(70),
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-        sticks.addView(zoneRow, fill(14));
-        final TextView zoneNote = text("A stick inside the dead zone reads as centred. The "
-                + "controller already ignores 12 %.", 13, DIM, false);
-        zoneNote.setSingleLine(false);
-        sticks.addView(zoneNote, fill(6));
-        mCalStatus = text("", 14, TEXT, false);
-        mCalStatus.setSingleLine(false);
-        sticks.addView(mCalStatus, fill(14));
-        mCalButton = text("Start calibration", 15, TEXT, true);
-        mCalButton.setGravity(Gravity.CENTER);
-        mCalButton.setBackground(box(0xFF232832, 0xFF2F3643, 10));
-        mCalButton.setOnClickListener(v -> {
-            if (mCalStep == 0 || mCalStep == 4) {
-                calibrationStart();
-            } else {
-                mCalStep = 0;
-                mMain.removeCallbacks(mCalHoldCheck);
-                calibrationShow();
+        final android.content.SharedPreferences prefs = PartsPrefs.get(this);
+        final LinearLayout[] cols = columns(page, 1f, 1f, 16);
+
+        // Profile: chosen by hand for the app in front
+        final LinearLayout profile = columnCard(cols[0], 0);
+        buildProfileCard(profile, prefs);
+        // The profile on changes with the app in front: the chips follow it.
+        final String[] profileShown = {profileKey(prefs)};
+        mLive.add(() -> {
+            final String now = profileKey(prefs);
+            if (!now.equals(profileShown[0])) {
+                profileShown[0] = now;
+                buildProfileCard(profile, prefs);
             }
         });
-        final LinearLayout.LayoutParams calParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, u(54));
-        calParams.topMargin = u(14);
-        sticks.addView(mCalButton, calParams);
-        mCalStep = 0;
-        calibrationShow();
-
-        // Face buttons
-        final LinearLayout faces = columnCard(cols[1], 0);
-        faces.addView(titleRow("Face buttons", null));
-        final LinearLayout facesRow = new LinearLayout(this);
-        facesRow.setGravity(Gravity.CENTER_VERTICAL);
-        final android.widget.FrameLayout diamond = new android.widget.FrameLayout(this);
-        final int[][] places = {{58, 0}, {0, 58}, {116, 58}, {58, 116}};
-        final String[] labels = {"Y", "X", "B", "A"};
-        final int[] keys = {android.view.KeyEvent.KEYCODE_BUTTON_Y,
-            android.view.KeyEvent.KEYCODE_BUTTON_X, android.view.KeyEvent.KEYCODE_BUTTON_B,
-            android.view.KeyEvent.KEYCODE_BUTTON_A};
-        for (int i = 0; i < 4; i++) {
-            final android.widget.FrameLayout.LayoutParams params =
-                    new android.widget.FrameLayout.LayoutParams(u(58), u(58));
-            params.leftMargin = u(places[i][0]);
-            params.topMargin = u(places[i][1]);
-            diamond.addView(faceButton(labels[i], keys[i]), params);
-        }
-        facesRow.addView(diamond, new LinearLayout.LayoutParams(u(174), u(174)));
-        final LinearLayout switches = new LinearLayout(this);
-        switches.setOrientation(LinearLayout.VERTICAL);
-        switches.addView(switchRow("Swap A ↔ B", null,
-                android.os.SystemProperties.getBoolean("persist.sys.pocketds.swap_ab", false),
-                on -> android.os.SystemProperties.set("persist.sys.pocketds.swap_ab",
-                        on ? "true" : "false")));
-        switches.addView(switchRow("Swap X ↔ Y", null,
-                android.os.SystemProperties.getBoolean("persist.sys.pocketds.swap_xy", false),
-                on -> android.os.SystemProperties.set("persist.sys.pocketds.swap_xy",
-                        on ? "true" : "false")), fill(18));
-        final TextView note = text("Applies to every app. A sends B and B sends A.", 14, DIM,
-                false);
-        note.setSingleLine(false);
-        switches.addView(note, fill(10));
-        final LinearLayout.LayoutParams switchParams = new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-        switchParams.leftMargin = u(14);
-        facesRow.addView(switches, switchParams);
-        faces.addView(facesRow, fill(8));
 
         // Vibration
         final android.os.VibratorManager vibrator = controllerVibrator();
-        final android.content.SharedPreferences prefs = PartsPrefs.get(this);
-        final LinearLayout vibration = columnCard(cols[1], 12);
+        final LinearLayout vibration = columnCard(cols[0], 12);
         final LinearLayout vibrationHead = titleRow("Vibration", null);
         final TextView test = text("Test", 14, TEXT, true);
         test.setPadding(u(20), u(10), u(20), u(10));
@@ -1371,190 +1115,145 @@ final class OverlayWindow extends android.content.ContextWrapper {
         strength.addView(percent, new LinearLayout.LayoutParams(u(56),
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         vibration.addView(strength, fill(16));
-        vibration.addView(switchRow("Touch and keyboard feedback", null,
-                Settings.System.getInt(getContentResolver(), Settings.System.HAPTIC_FEEDBACK_ENABLED,
-                        1) == 1, on -> Settings.System.putInt(getContentResolver(),
-                        Settings.System.HAPTIC_FEEDBACK_ENABLED, on ? 1 : 0)), fill(18));
 
-        // Triggers
-        final LinearLayout triggers = columnCard(cols[1], 12);
-        triggers.addView(titleRow("Triggers", null));
-        mLeftTrigger = bar(0xFF34C3A5);
-        mRightTrigger = bar(0xFF34C3A5);
-        for (int i = 0; i < 2; i++) {
-            final LinearLayout row = new LinearLayout(this);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.addView(text(i == 0 ? "L2" : "R2", 14, TEXT, true), new LinearLayout.LayoutParams(
-                    u(36), ViewGroup.LayoutParams.WRAP_CONTENT));
-            row.addView(i == 0 ? mLeftTrigger : mRightTrigger, new LinearLayout.LayoutParams(0, u(14),
-                    1f));
-            row.addView(text("Analog", 14, DIM, true), new LinearLayout.LayoutParams(u(76),
-                    ViewGroup.LayoutParams.WRAP_CONTENT));
-            ((TextView) row.getChildAt(2)).setGravity(Gravity.END);
-            triggers.addView(row, fill(i == 0 ? 18 : 16));
+        // One shortcut: the test, the calibration and the remapping are in the Settings
+        final TextView settings = chip("Controller settings", false);
+        settings.setPadding(u(16), u(12), u(16), u(12));
+        settings.setOnClickListener(v -> openSettings(false));
+        // Which screen gets the controller: small chips, not big tiles
+        final android.content.SharedPreferences focusPrefs = PartsPrefs.get(this);
+        final LinearLayout focus = columnCard(cols[1], 0);
+        focus.addView(titleRow("Controller focus", "Which screen gets the buttons"));
+        final String[] focusNames = {"Automatic", "Always top", "Always bottom"};
+        final String[] focusValues = {Screens.FOCUS_AUTO, Screens.FOCUS_TOP, Screens.FOCUS_BOTTOM};
+        final TextView[] focusChips = new TextView[3];
+        final LinearLayout focusRow = new LinearLayout(this);
+        final Runnable paintFocus = () -> {
+            final String now = focusPrefs.getString(PartsPrefs.FOCUS_LOCK, Screens.FOCUS_AUTO);
+            for (int i = 0; i < 3; i++) setChip(focusChips[i], focusValues[i].equals(now));
+        };
+        for (int i = 0; i < 3; i++) {
+            final String value = focusValues[i];
+            focusChips[i] = chip(focusNames[i], false);
+            focusChips[i].setOnClickListener(v -> {
+                focusPrefs.edit().putString(PartsPrefs.FOCUS_LOCK, value).apply();
+                Screens.applyFocusLock(this, true);
+                paintFocus.run();
+            });
+            if (i > 0) space(focusRow, 8);
+            focusRow.addView(focusChips[i]);
         }
+        paintFocus.run();
+        mLive.add(paintFocus);
+        focus.addView(focusRow, fill(14));
 
-        buildRemap(columnCard(cols[1], 12));
+        final LinearLayout more = columnCard(cols[1], 12);
+        more.addView(titleRow("More", null));
+        final TextView moreNote = text("Test the buttons and sticks, calibrate and remap the "
+                + "buttons.", 14, DIM, false);
+        moreNote.setSingleLine(false);
+        more.addView(moreNote, fill(12));
+        more.addView(settings, fill(14));
     }
 
-    // ---- remapping the buttons (persist.sys.pocketds.keymap, read by the input reader)
-
-    private static final String KEYMAP_PROP = "persist.sys.pocketds.keymap";
-    private boolean mRemapListening;
-    private int mRemapScan;
-    private LinearLayout mRemapCard;
-
-    private static String scanName(int scan) {
-        switch (scan) {
-            case 304: return "A";
-            case 305: return "B";
-            case 307: return "X";
-            case 308: return "Y";
-            case 310: return "L1";
-            case 311: return "R1";
-            case 314: return "Select";
-            case 315: return "Start";
-            case 316: return "Mode";
-            case 317: return "L3";
-            case 318: return "R3";
-            case 259: return "LC";
-            case 260: return "RC";
-            default: return "Button " + scan;
-        }
+    private void openSettings(boolean unused) {
+        startActivity(new Intent(this, SectionActivity.class)
+                .putExtra(SectionActivity.EXTRA_SECTION, SectionActivity.CONTROLLER)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        dismiss();
     }
 
-    private static final String[] TARGET_NAMES = {"A", "B", "X", "Y", "L1", "R1", "L3", "R3",
-        "Start", "Select", "Mode", "D-pad up", "D-pad down", "D-pad left", "D-pad right", "Back",
-        "Home", "Volume up", "Volume down", "Nothing"};
-    private static final int[] TARGET_CODES = {96, 97, 99, 100, 102, 103, 106, 107, 108, 109,
-        110, 19, 20, 21, 22, 4, 3, 24, 25, 0};
-
-    private static String targetName(int code) {
-        for (int i = 0; i < TARGET_CODES.length; i++) if (TARGET_CODES[i] == code) {
-            return TARGET_NAMES[i];
-        }
-        return "Key " + code;
-    }
-
-    private List<int[]> readKeymap() {
-        final List<int[]> out = new ArrayList<>();
-        final String text = android.os.SystemProperties.get(KEYMAP_PROP, "");
-        for (String pair : text.split(",")) {
-            final String[] parts = pair.split(":");
-            if (parts.length != 2) continue;
-            try {
-                out.add(new int[] {Integer.parseInt(parts[0]), Integer.parseInt(parts[1])});
-            } catch (NumberFormatException e) {
-                // skipped
-            }
-        }
-        return out;
-    }
-
-    private boolean writeKeymap(List<int[]> map) {
-        final StringBuilder text = new StringBuilder();
-        for (int[] pair : map) {
-            if (text.length() > 0) text.append(',');
-            text.append(pair[0]).append(':').append(pair[1]);
-        }
-        if (text.length() > 91) {
-            android.widget.Toast.makeText(getApplicationContext(), "Too many remaps", android.widget.Toast.LENGTH_SHORT)
-                    .show();
-            return false;
-        }
-        android.os.SystemProperties.set(KEYMAP_PROP, text.toString());
-        return true;
-    }
-
-    private void buildRemap(LinearLayout card) {
-        mRemapCard = card;
-        paintRemap();
-    }
-
-    private void paintRemap() {
-        final LinearLayout card = mRemapCard;
-        if (card == null) return;
+    /** The controller profiles as chips: tapping one puts it on at once, for the app in front. */
+    private void buildProfileCard(LinearLayout card, android.content.SharedPreferences prefs) {
         card.removeAllViews();
-        card.addView(titleRow("Button remapping", "Every app"));
-        final List<int[]> map = readKeymap();
-        for (int i = 0; i < map.size(); i++) {
-            final int[] pair = map.get(i);
-            final LinearLayout row = new LinearLayout(this);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.addView(text(scanName(pair[0]) + "   →   " + targetName(pair[1]), 15, TEXT, true),
-                    new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-            final TextView remove = chip("Remove", false);
-            final int index = i;
-            remove.setOnClickListener(v -> {
-                final List<int[]> now = readKeymap();
-                if (index < now.size()) now.remove(index);
-                writeKeymap(now);
-                paintRemap();
-            });
-            row.addView(remove);
-            card.addView(row, fill(i == 0 ? 14 : 10));
-        }
-        if (map.isEmpty() && !mRemapListening) {
-            card.addView(text("A button can send another one: press it here, then pick what "
-                    + "it does.", 14, DIM, false), fill(12));
-        }
-        if (mRemapListening) {
-            card.addView(text("Press the button you want to change…", 16, ACCENT, true),
-                    fill(14));
-            final TextView cancel = chip("Cancel", false);
-            cancel.setOnClickListener(v -> {
-                mRemapListening = false;
-                mRemapScan = 0;
-                paintRemap();
-            });
-            card.addView(cancel, fill(10));
-        } else if (mRemapScan != 0) {
-            card.addView(text(scanName(mRemapScan) + " should act as…", 16, TEXT, true), fill(14));
-            final LinearLayout line = new LinearLayout(this);
-            line.setOrientation(LinearLayout.VERTICAL);
-            LinearLayout current = null;
-            for (int i = 0; i < TARGET_NAMES.length; i++) {
-                if (i % 4 == 0) {
-                    current = new LinearLayout(this);
-                    line.addView(current, fill(8));
-                }
-                final int code = TARGET_CODES[i];
-                final TextView chip = chip(TARGET_NAMES[i], false);
-                chip.setOnClickListener(v -> {
-                    final List<int[]> now = readKeymap();
-                    now.removeIf(pair -> pair[0] == mRemapScan);
-                    now.add(new int[] {mRemapScan, code});
-                    if (writeKeymap(now)) mRemapScan = 0;
-                    paintRemap();
-                });
-                current.addView(chip);
-                space(current, 8);
+        final String pkg = foregroundPackage();
+        final String appName = pkg == null ? null : labelOf(pkg);
+        card.addView(titleRow("Controller profile", appName));
+        final java.util.List<ControllerProfiles.Named> list = ControllerProfiles.all(prefs);
+        final String active = ControllerProfiles.activeId(prefs);
+        final LinearLayout chips = new LinearLayout(this);
+        chips.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout line = null;
+        for (int i = 0; i <= list.size(); i++) {
+            if (i % 3 == 0) {
+                line = new LinearLayout(this);
+                chips.addView(line, fill(i == 0 ? 0 : 8));
             }
-            card.addView(line, fill(0));
-        } else {
-            final TextView add = chip("Add a remap", true);
-            add.setOnClickListener(v -> {
-                mRemapListening = true;
-                paintRemap();
+            final ControllerProfiles.Named n = i == 0 ? null : list.get(i - 1);
+            final boolean on = n == null ? (active == null || active.isEmpty())
+                    : n.id.equals(active);
+            final TextView chip = chip(n == null ? "Default" : n.name, on);
+            chip.setOnClickListener(v -> {
+                ControllerProfiles.applyManual(prefs, n == null ? null : n.id);
+                buildProfileCard(card, prefs);
             });
-            final LinearLayout buttons = new LinearLayout(this);
-            buttons.addView(add);
-            if (!map.isEmpty()) {
-                space(buttons, 8);
-                final TextView clear = chip("Remove all", false);
-                clear.setOnClickListener(v -> {
-                    writeKeymap(new ArrayList<>());
-                    paintRemap();
-                });
-                buttons.addView(clear);
-            }
-            card.addView(buttons, fill(14));
+            line.addView(chip);
+            space(line, 8);
+        }
+        card.addView(chips, fill(14));
+        if (list.isEmpty()) {
+            card.addView(text("No profile yet: make one in the Settings, Controller.", 14, DIM,
+                    false), fill(12));
+        }
+        if (pkg != null) {
+            final String assigned = ControllerProfiles.assignedId(prefs, pkg);
+            final boolean same = (assigned == null ? "" : assigned).equals(
+                    active == null ? "" : active);
+            final TextView keep = chip(same ? "Kept for " + appName : "Keep for " + appName,
+                    false);
+            keep.setOnClickListener(v -> {
+                ControllerProfiles.assign(prefs, pkg, active == null || active.isEmpty() ? null
+                        : active);
+                buildProfileCard(card, prefs);
+            });
+            card.addView(keep, fill(14));
+        }
+        final TextView note = text("A profile put on here stays until another app comes to the "
+                + "front. \"Keep\" makes the app use it every time.", 13, DIM, false);
+        note.setSingleLine(false);
+        card.addView(note, fill(10));
+    }
+
+    /** What the profile card shows: the profile on, the app in front and its own profile. */
+    private String profileKey(android.content.SharedPreferences prefs) {
+        final String pkg = foregroundPackage();
+        return ControllerProfiles.activeId(prefs) + "|" + pkg + "|"
+                + (pkg == null ? null : ControllerProfiles.assignedId(prefs, pkg)) + "|"
+                + ControllerProfiles.all(prefs).size();
+    }
+
+    private String foregroundPackage() {
+        final ForegroundWatcher watcher = ForegroundWatcher.get();
+        final android.app.ActivityManager.RunningTaskInfo app =
+                watcher == null ? null : watcher.current();
+        if (app == null || app.baseActivity == null) return null;
+        final String pkg = app.baseActivity.getPackageName();
+        return pkg.equals(getPackageName()) ? null : pkg;
+    }
+
+    private String labelOf(String pkg) {
+        try {
+            final android.content.pm.PackageManager pm = getPackageManager();
+            return String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)));
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            return pkg;
         }
     }
 
     // ---- page: sound
 
     private TextView mMasterPercent;
+    private SeekBar mMasterSlider;
+    private boolean mMasterTouched;
+
+    /** The master volume follows the volume keys and the other screens, without leaving the tab. */
+    private void refreshVolume() {
+        if (mPage != 2 || mMasterSlider == null || mMasterTouched) return;
+        final AudioManager audio = getSystemService(AudioManager.class);
+        final int now = percentOf(audio, AudioManager.STREAM_MUSIC);
+        if (mMasterSlider.getProgress() != now) mMasterSlider.setProgress(now);
+        mMasterPercent.setText(Integer.toString(now));
+    }
 
     private int percentOf(AudioManager audio, int stream) {
         return audio.getStreamVolume(stream) * 100 / Math.max(1, audio.getStreamMaxVolume(stream));
@@ -1583,43 +1282,31 @@ final class OverlayWindow extends android.content.ContextWrapper {
         unit.setPadding(u(4), 0, 0, u(6));
         big.addView(unit);
         master.addView(big, fill(8));
-        master.addView(slider(percentOf(audio, AudioManager.STREAM_MUSIC), 100, new Changed() {
+        mMasterSlider = slider(percentOf(audio, AudioManager.STREAM_MUSIC), 100, new Changed() {
             @Override
             void changed(int value) {
                 final int max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
                 audio.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(value * max / 100f), 0);
                 mMasterPercent.setText(Integer.toString(value));
             }
-        }), fill(6));
-        master.addView(switchRow("Mute everything", null,
-                audio.isStreamMute(AudioManager.STREAM_MUSIC), on -> audio.adjustStreamVolume(
+
+            @Override
+            public void onStartTrackingTouch(SeekBar bar) {
+                mMasterTouched = true;
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar bar) {
+                mMasterTouched = false;
+            }
+        });
+        master.addView(mMasterSlider, fill(6));
+        master.addView(liveSwitchRow("Mute everything", null,
+                () -> audio.isStreamMute(AudioManager.STREAM_MUSIC), on -> audio.adjustStreamVolume(
                         AudioManager.STREAM_MUSIC,
                         on ? AudioManager.ADJUST_MUTE : AudioManager.ADJUST_UNMUTE, 0)), fill(14));
 
-        final LinearLayout output = columnCard(cols[0], 12);
-        output.addView(titleRow("Output", null));
-        final String headphones = outputState(audio,
-                android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
-                android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET,
-                android.media.AudioDeviceInfo.TYPE_USB_HEADSET);
-        final String bluetooth = outputState(audio,
-                android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP);
-        final String[][] outputs = {
-            {"Speakers", headphones == null && bluetooth == null ? "Selected" : "Available"},
-            {"Headphones", headphones == null ? "Not connected" : "Selected"},
-            {"Bluetooth", bluetooth == null ? "None connected" : "Selected"}};
-        for (String[] entry : outputs) {
-            final LinearLayout line = new LinearLayout(this);
-            line.addView(text(entry[0], 15, TEXT, false), new LinearLayout.LayoutParams(0,
-                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-            line.addView(text(entry[1], 14, "Selected".equals(entry[1]) ? TEXT : DIM,
-                    "Selected".equals(entry[1])));
-            output.addView(line, fill(16));
-        }
-        final TextView note = text("One master volume for the whole console. Each app has its own "
-                + "level on top of it.", 14, DIM, false);
-        note.setSingleLine(false);
-        cols[0].addView(note, fill(12));
+        buildOutputCard(cols[0], audio);
 
         buildNowPlaying(cols[1]);
         final LinearLayout apps = columnCard(cols[1], 12);
@@ -1643,6 +1330,121 @@ final class OverlayWindow extends android.content.ContextWrapper {
         }
         addRule(apps, 8);
         apps.addView(appRowSystem(audio));
+    }
+
+    // ---- where the sound goes: a choice, shown only when there is something to choose from
+
+    private android.media.audiopolicy.AudioProductStrategy mediaStrategy() {
+        try {
+            return android.media.audiopolicy.AudioProductStrategy
+                    .getAudioProductStrategyForAudioAttributes(new android.media.AudioAttributes
+                            .Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA).build(),
+                            true);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static String outputName(android.media.AudioDeviceInfo device) {
+        switch (device.getType()) {
+            case android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER: return "Speakers";
+            case android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:
+                return device.getProductName().length() == 0 ? "Bluetooth"
+                        : device.getProductName().toString();
+            default: return "Headphones";
+        }
+    }
+
+    /** The outputs that can carry the media sound now, one per kind. */
+    private List<android.media.AudioDeviceInfo> mediaOutputs(AudioManager audio) {
+        final List<android.media.AudioDeviceInfo> out = new ArrayList<>();
+        final java.util.Set<Integer> kinds = new java.util.HashSet<>();
+        for (android.media.AudioDeviceInfo device : audio.getDevices(
+                AudioManager.GET_DEVICES_OUTPUTS)) {
+            final int type = device.getType();
+            final boolean wanted = type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                    || type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+                    || type == android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET
+                    || type == android.media.AudioDeviceInfo.TYPE_USB_HEADSET
+                    || type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP;
+            if (wanted && kinds.add(type)) out.add(device);
+        }
+        return out;
+    }
+
+    private String outputKey(AudioManager audio) {
+        final StringBuilder key = new StringBuilder();
+        for (android.media.AudioDeviceInfo device : mediaOutputs(audio)) {
+            key.append(device.getId()).append(',');
+        }
+        try {
+            final android.media.audiopolicy.AudioProductStrategy strategy = mediaStrategy();
+            if (strategy != null && audio.getPreferredDeviceForStrategy(strategy) != null) {
+                key.append('@').append(audio.getPreferredDeviceForStrategy(strategy).getType());
+            }
+        } catch (RuntimeException e) {
+            // not allowed: the choice is not offered
+        }
+        return key.toString();
+    }
+
+    private void buildOutputCard(LinearLayout column, AudioManager audio) {
+        final LinearLayout holder = new LinearLayout(this);
+        holder.setOrientation(LinearLayout.VERTICAL);
+        column.addView(holder, fill(12));
+        paintOutputCard(holder, audio);
+        final String[] shown = {outputKey(audio)};
+        mLive.add(() -> {
+            final String now = outputKey(audio);
+            if (!now.equals(shown[0])) {
+                shown[0] = now;
+                paintOutputCard(holder, audio);
+            }
+        });
+    }
+
+    private void paintOutputCard(LinearLayout holder, AudioManager audio) {
+        holder.removeAllViews();
+        final List<android.media.AudioDeviceInfo> outputs = mediaOutputs(audio);
+        final android.media.audiopolicy.AudioProductStrategy strategy = mediaStrategy();
+        // Without the audio routing there is nothing to offer; with a single output the card
+        // still shows, saying what to plug in.
+        if (strategy == null || outputs.isEmpty()) return;
+        final LinearLayout output = card();
+        output.addView(titleRow("Output", "Where the sound goes"));
+        android.media.AudioDeviceAttributes preferred = null;
+        try {
+            preferred = audio.getPreferredDeviceForStrategy(strategy);
+        } catch (RuntimeException e) {
+            return;
+        }
+        final android.media.AudioDeviceAttributes chosen = preferred;
+        final LinearLayout chips = new LinearLayout(this);
+        final TextView automatic = chip("Automatic", chosen == null);
+        automatic.setOnClickListener(v -> {
+            audio.removePreferredDeviceForStrategy(strategy);
+            paintOutputCard(holder, audio);
+        });
+        chips.addView(automatic);
+        for (android.media.AudioDeviceInfo device : outputs) {
+            space(chips, 8);
+            final TextView chip = chip(outputName(device), chosen != null
+                    && chosen.getType() == device.getType());
+            chip.setOnClickListener(v -> {
+                audio.setPreferredDeviceForStrategy(strategy,
+                        new android.media.AudioDeviceAttributes(device));
+                paintOutputCard(holder, audio);
+            });
+            chips.addView(chip);
+        }
+        output.addView(chips, fill(14));
+        if (outputs.size() < 2) {
+            final TextView hint = text("Plug in headphones or connect a Bluetooth device to choose "
+                    + "where the sound goes.", 13, DIM, false);
+            hint.setSingleLine(false);
+            output.addView(hint, fill(10));
+        }
+        holder.addView(output);
     }
 
     // ---- now playing (the media session of the music app, MEDIA_CONTENT_CONTROL)
@@ -1972,7 +1774,19 @@ final class OverlayWindow extends android.content.ContextWrapper {
             tiles.add(tile);
             row.addView(tile, tileParams(i, names.length));
         }
-        addTilesRefresh(row, tiles, names, glyphs, values, get.get(), set);
+        final String[] shown = {get.get()};
+        final java.util.function.Consumer<String> remember = choice -> {
+            shown[0] = choice;
+            set.accept(choice);
+        };
+        addTilesRefresh(row, tiles, names, glyphs, values, shown[0], remember);
+        mLive.add(() -> {
+            final String now = get.get();
+            if (now != null && !now.equals(shown[0])) {
+                shown[0] = now;
+                addTilesRefresh(row, tiles, names, glyphs, values, now, remember);
+            }
+        });
         card.addView(row, fill(12));
     }
 
@@ -2009,27 +1823,11 @@ final class OverlayWindow extends android.content.ContextWrapper {
             "toptouch", "bottom"}, new String[] {Screens.MODE_BOTH, Screens.MODE_TOP_CURSOR,
             Screens.MODE_TOP_TOUCHPAD, Screens.MODE_BOTTOM}, () -> Screens.screenMode(this),
                 choice -> Screens.setScreenMode(this, choice));
-        mode.addView(switchRow("Swap the screens", "The bottom screen becomes the main screen "
-                + "and the other way round", Screens.isSwapped(this),
+        mode.addView(liveSwitchRow("Swap the screens", "The bottom screen becomes the main screen "
+                + "and the other way round", () -> Screens.isSwapped(this),
                 on -> Screens.setSwapped(this, on)), fill(16));
 
         page.addView(brightnessCard(), fill(12));
-
-        final LinearLayout focus = pageCard(page, 12);
-        focus.addView(titleRow("Controller focus", null));
-        addTiles(focus, new String[] {"Automatic", "Always the top screen",
-            "Always the bottom screen"}, null,
-                new String[] {Screens.FOCUS_AUTO, Screens.FOCUS_TOP, Screens.FOCUS_BOTTOM},
-                () -> prefs.getString(PartsPrefs.FOCUS_LOCK, Screens.FOCUS_AUTO), choice -> {
-                    prefs.edit().putString(PartsPrefs.FOCUS_LOCK, choice).apply();
-                    Screens.applyFocusLock(this, true);
-                });
-
-        final LinearLayout swipe = pageCard(page, 12);
-        swipe.addView(switchRow("Swipe back on the second screen",
-                "Swipe from its left or right edge towards the middle",
-                prefs.getBoolean(PartsPrefs.SECOND_GESTURES, true),
-                on -> prefs.edit().putBoolean(PartsPrefs.SECOND_GESTURES, on).apply()));
     }
 
     private LinearLayout statCard(String title, TextView value, View first, View second) {
@@ -2218,6 +2016,40 @@ final class OverlayWindow extends android.content.ContextWrapper {
         return row;
     }
 
+    /** A slider with its name and percentage above it: two of them fit side by side. */
+    private LinearLayout sliderColumn(String name, int progress, int max,
+            SeekBar.OnSeekBarChangeListener listener, SeekBar[] out) {
+        final LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        final LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.addView(text(name, 15, TEXT, true), new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        final TextView percent = text(progress * 100 / Math.max(1, max) + " %", 14, TEXT, true);
+        head.addView(percent);
+        column.addView(head, fill(10));
+        final SeekBar bar = slider(progress, max, new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seek, int value, boolean fromUser) {
+                percent.setText(value * 100 / Math.max(1, max) + " %");
+                listener.onProgressChanged(seek, value, fromUser);
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seek) {
+                listener.onStartTrackingTouch(seek);
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seek) {
+                listener.onStopTrackingTouch(seek);
+            }
+        });
+        column.addView(bar, fill(6));
+        if (out != null) out[0] = bar;
+        return column;
+    }
+
     private View brightnessCard() {
         final LinearLayout card = card();
         final LinearLayout header = titleRow("Brightness", null);
@@ -2229,7 +2061,7 @@ final class OverlayWindow extends android.content.ContextWrapper {
         final SeekBar[] topBar = new SeekBar[1];
         final SeekBar[] bottomBar = new SeekBar[1];
         final boolean[] linked = {PartsPrefs.get(this).getBoolean(PartsPrefs.BRIGHTNESS_LINK, false)};
-        final LinearLayout topRow = sliderRow("Top", top, 255, new SeekBar.OnSeekBarChangeListener() {
+        final LinearLayout topRow = sliderColumn("Top", top, 255, new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar bar, int value, boolean fromUser) {
                 if (!fromUser) return;
@@ -2255,7 +2087,7 @@ final class OverlayWindow extends android.content.ContextWrapper {
             @Override
             public void onStopTrackingTouch(SeekBar bar) {}
         }, topBar);
-        final LinearLayout bottomRow = sliderRow("Bottom", bottom, 255,
+        final LinearLayout bottomRow = sliderColumn("Bottom", bottom, 255,
                 new SeekBar.OnSeekBarChangeListener() {
                     @Override
                     public void onProgressChanged(SeekBar bar, int value, boolean fromUser) {
@@ -2304,8 +2136,31 @@ final class OverlayWindow extends android.content.ContextWrapper {
             }
         });
         header.addView(link);
-        card.addView(topRow);
-        card.addView(bottomRow);
+        mLive.add(() -> {
+            final int topNow = Settings.System.getInt(resolver, Settings.System.SCREEN_BRIGHTNESS,
+                    128);
+            int bottomNow = Settings.Global.getInt(resolver, "secondary_screen_brightness", -1);
+            if (bottomNow <= 0) bottomNow = topNow;
+            if (topBar[0] != null && !topBar[0].isPressed() && topBar[0].getProgress() != topNow) {
+                topBar[0].setProgress(topNow);
+            }
+            if (bottomBar[0] != null && !bottomBar[0].isPressed()
+                    && bottomBar[0].getProgress() != bottomNow) {
+                bottomBar[0].setProgress(bottomNow);
+            }
+        });
+        // The two screens side by side
+        final LinearLayout both = new LinearLayout(this);
+        both.setOrientation(LinearLayout.HORIZONTAL);
+        final LinearLayout.LayoutParams left = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        left.rightMargin = u(14);
+        final LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        right.leftMargin = u(14);
+        both.addView(topRow, left);
+        both.addView(bottomRow, right);
+        card.addView(both);
         return card;
     }
 
@@ -2420,6 +2275,8 @@ final class OverlayWindow extends android.content.ContextWrapper {
         // The profile can change from the button of the console while the overlay is open.
         mMain.post(() -> {
             if (mPage == 0 && mSummary != null && mProfileTiles[0] != null) showProfile();
+            runLive();
+            if (mPage == 2) refreshVolume();
             if (mPage == 2 && mNowTitle != null) refreshNowPlaying();
             if (mPage == 4) refreshGraph();
         });

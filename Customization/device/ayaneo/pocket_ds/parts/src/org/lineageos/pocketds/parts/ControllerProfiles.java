@@ -28,11 +28,15 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
     private static final String KEY_NEXT = "pad_next_id";
     private static final String KEY_APP = "pad_app_";
     private static final String KEY_RESTORE = "pad_restore";
+    private static final String KEY_ACTIVE = "pad_active";
 
     static final String PROP_AB = "persist.sys.pocketds.swap_ab";
     static final String PROP_XY = "persist.sys.pocketds.swap_xy";
     static final String PROP_ZONE = "persist.sys.pocketds.deadzone";
     static final String PROP_MAP = "persist.sys.pocketds.keymap";
+    /** "scancode:presses per second,...": the buttons that fire again and again while held. */
+    static final String PROP_TURBO = "persist.sys.pocketds.turbo";
+    static final int[] TURBO_RATES = {0, 3, 5, 8, 10, 15, 20, 30};
 
     /** What a button can be made to send (names and Android key codes), "Nothing" disables it. */
     static final String[] TARGET_NAMES = {"A", "B", "X", "Y", "L1", "R1", "L2", "R2", "L3", "R3",
@@ -72,9 +76,10 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
         int swapXy = -1;
         int zone = -1;
         String map;
+        String turbo;
 
         boolean empty() {
-            return swapAb < 0 && swapXy < 0 && zone < 0 && map == null;
+            return swapAb < 0 && swapXy < 0 && zone < 0 && map == null && turbo == null;
         }
 
         String encode() {
@@ -83,6 +88,7 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
             if (swapXy >= 0) sb.append("xy=").append(swapXy).append(';');
             if (zone >= 0) sb.append("dz=").append(zone).append(';');
             if (map != null) sb.append("map=").append(map).append(';');
+            if (turbo != null) sb.append("tb=").append(turbo).append(';');
             return sb.toString();
         }
 
@@ -99,6 +105,7 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
                         case "xy": p.swapXy = Integer.parseInt(value); break;
                         case "dz": p.zone = Integer.parseInt(value); break;
                         case "map": p.map = value; break;
+                        case "tb": p.turbo = value; break;
                         default: break;
                     }
                 } catch (NumberFormatException e) {
@@ -121,6 +128,7 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
                 final int n = map.isEmpty() ? 0 : map.split(",").length;
                 add(sb, n == 0 ? "no remap" : n + (n == 1 ? " remap" : " remaps"));
             }
+            if (turbo != null && !turbo.isEmpty()) add(sb, "turbo");
             return sb.toString();
         }
 
@@ -267,6 +275,7 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
         p.swapXy = SystemProperties.getBoolean(PROP_XY, false) ? 1 : 0;
         p.zone = Math.max(0, SystemProperties.getInt(PROP_ZONE, 0));
         p.map = SystemProperties.get(PROP_MAP, "");
+        p.turbo = SystemProperties.get(PROP_TURBO, "");
         return p;
     }
 
@@ -275,28 +284,52 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
         SystemProperties.set(PROP_XY, p.swapXy == 1 ? "true" : "false");
         SystemProperties.set(PROP_ZONE, Integer.toString(Math.max(0, p.zone)));
         SystemProperties.set(PROP_MAP, p.map == null ? "" : p.map);
+        SystemProperties.set(PROP_TURBO, p.turbo == null ? "" : p.turbo);
     }
 
     @Override
     public void onForeground(ActivityManager.RunningTaskInfo app) {
-        final Profile wanted = app == null || app.baseActivity == null ? new Profile()
-                : forApp(mPrefs, app.baseActivity.getPackageName());
-        final String saved = mPrefs.getString(KEY_RESTORE, null);
+        final String pkg = app == null || app.baseActivity == null ? null
+                : app.baseActivity.getPackageName();
+        applyProfile(mPrefs, assignedId(mPrefs, pkg));
+    }
+
+    /** The profile in use now (named one), null when the setup of every app is. */
+    static String activeId(SharedPreferences prefs) {
+        final String id = prefs.getString(KEY_ACTIVE, null);
+        return find(prefs, id) == null ? null : id;
+    }
+
+    /**
+     * Puts a profile on by hand (null = the setup of every app). It stays until another app comes
+     * to the front, where that app's own profile takes over again.
+     */
+    static void applyManual(SharedPreferences prefs, String id) {
+        applyProfile(prefs, id);
+    }
+
+    private static void applyProfile(SharedPreferences prefs, String id) {
+        final Named named = find(prefs, id);
+        final Profile wanted = named == null ? new Profile() : named.profile;
+        final String saved = prefs.getString(KEY_RESTORE, null);
         if (wanted.empty()) {
             if (saved != null) {
                 write(Profile.parse(saved));
-                mPrefs.edit().remove(KEY_RESTORE).apply();
+                prefs.edit().remove(KEY_RESTORE).apply();
             }
+            prefs.edit().putString(KEY_ACTIVE, named == null ? "" : named.id).apply();
             return;
         }
-        // Keep the general setup once, then put the app's fields over it.
+        // Keep the general setup once, then put the profile's fields over it.
         final Profile general = saved != null ? Profile.parse(saved) : currentSetup();
-        if (saved == null) mPrefs.edit().putString(KEY_RESTORE, general.encode()).apply();
+        if (saved == null) prefs.edit().putString(KEY_RESTORE, general.encode()).apply();
         final Profile effective = new Profile();
         effective.swapAb = wanted.swapAb >= 0 ? wanted.swapAb : general.swapAb;
         effective.swapXy = wanted.swapXy >= 0 ? wanted.swapXy : general.swapXy;
         effective.zone = wanted.zone >= 0 ? wanted.zone : general.zone;
         effective.map = wanted.map != null ? wanted.map : general.map;
+        effective.turbo = wanted.turbo != null ? wanted.turbo : general.turbo;
         write(effective);
+        prefs.edit().putString(KEY_ACTIVE, named.id).apply();
     }
 }

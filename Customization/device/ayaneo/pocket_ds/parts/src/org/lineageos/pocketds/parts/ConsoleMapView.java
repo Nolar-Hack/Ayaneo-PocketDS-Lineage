@@ -91,7 +91,12 @@ final class ConsoleMapView extends View {
     private final Path mPath = new Path();
     private final int mAccent;
     private SparseIntArray mMap = new SparseIntArray();
+    private SparseIntArray mTurbo = new SparseIntArray();
     private int mSelected = -1;
+    private int mHatX;                              // D-pad: -1 left, 1 right
+    private int mHatY;                              // -1 up, 1 down
+    private final float[] mSticks = new float[4];   // left x, y, right x, y (-1..1)
+    private final java.util.Set<String> mPressed = new java.util.HashSet<>();
     private Listener mListener;
     private float mScale = 1f;
 
@@ -107,6 +112,93 @@ final class ConsoleMapView extends View {
     /** scan code -> key code of the current remapping. */
     void setMap(SparseIntArray map) {
         mMap = map;
+        invalidate();
+    }
+
+    /** Lights a button of the drawing while it is held (live test); the name is the region's. */
+    void setPressed(String name, boolean down) {
+        if (down ? mPressed.add(name) : mPressed.remove(name)) invalidate();
+    }
+
+    /** Lights the button with this scan code; returns false when the drawing has none. */
+    boolean setPressedScan(int scan, boolean down) {
+        for (Region r : REGIONS) {
+            if (r.scan == scan) {
+                setPressed(r.name, down);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The live position of the two sticks, drawn as a dot in their ring on the console. */
+    void setSticks(float lx, float ly, float rx, float ry) {
+        if (mSticks[0] == lx && mSticks[1] == ly && mSticks[2] == rx && mSticks[3] == ry) return;
+        mSticks[0] = lx;
+        mSticks[1] = ly;
+        mSticks[2] = rx;
+        mSticks[3] = ry;
+        invalidate();
+    }
+
+    /** The direction held on the D-pad (a hat axis): only that arm of the cross lights up. */
+    void setDpad(float hx, float hy) {
+        final int x = hx < -0.5f ? -1 : hx > 0.5f ? 1 : 0;
+        final int y = hy < -0.5f ? -1 : hy > 0.5f ? 1 : 0;
+        if (x == mHatX && y == mHatY) return;
+        mHatX = x;
+        mHatY = y;
+        invalidate();
+    }
+
+    private void drawDpad(Canvas c) {
+        if (mHatX == 0 && mHatY == 0) return;
+        // arms of the cross drawn with the front: centre (125, 460), each arm 60 x 40
+        final float[][] arms = {{95, 400, 155, 440}, {95, 480, 155, 520}, {55, 440, 95, 480},
+            {155, 440, 195, 480}};
+        mPaint.setStyle(Paint.Style.FILL);
+        mPaint.setColor(mAccent);
+        for (int i = 0; i < 4; i++) {
+            final boolean on = i == 0 && mHatY < 0 || i == 1 && mHatY > 0
+                    || i == 2 && mHatX < 0 || i == 3 && mHatX > 0;
+            if (!on) continue;
+            mRect.set(arms[i][0], arms[i][1], arms[i][2], arms[i][3]);
+            c.drawRoundRect(mRect, 6, 6, mPaint);
+        }
+        mRect.set(95, 440, 155, 480);
+        mPaint.setColor((mAccent & 0x00FFFFFF) | 0x80000000);
+        c.drawRect(mRect, mPaint);
+    }
+
+    private void drawSticks(Canvas c) {
+        drawDpad(c);
+        final float[][] rings = {{122, 245}, {1222, 462}};
+        for (int i = 0; i < 2; i++) {
+            final float x = mSticks[i * 2];
+            final float y = mSticks[i * 2 + 1];
+            if (Math.hypot(x, y) < 0.04) continue;
+            final float px = rings[i][0] + x * 66;
+            final float py = rings[i][1] + y * 66;
+            mPaint.setStyle(Paint.Style.FILL);
+            mPaint.setColor((mAccent & 0x00FFFFFF) | 0x60000000);
+            c.drawCircle(px, py, 34, mPaint);
+            mPaint.setColor(mAccent);
+            c.drawCircle(px, py, 20, mPaint);
+        }
+    }
+
+    void clearPressed() {
+        if (!mPressed.isEmpty() || mHatX != 0 || mHatY != 0) {
+            mPressed.clear();
+            mHatX = 0;
+            mHatY = 0;
+            invalidate();
+        }
+    }
+
+    /** scan code -> presses per second of the buttons in turbo mode: tagged on the drawing. */
+    void setTurbo(SparseIntArray turbo) {
+        mTurbo = turbo;
         invalidate();
     }
 
@@ -136,6 +228,7 @@ final class ConsoleMapView extends View {
         drawFront(c);
         drawTop(c);
         for (Region r : REGIONS) drawRegion(c, r);
+        drawSticks(c);
         c.restore();
     }
 
@@ -280,6 +373,25 @@ final class ConsoleMapView extends View {
             mPaint.setColor(0xFF6B7387);
             c.drawCircle(cx, cy, Math.min(10, (r.round ? r.w : r.h) / 3), mPaint);
         }
+        if (mPressed.contains(r.name)) {
+            mPaint.setStyle(Paint.Style.FILL);
+            mPaint.setColor((mAccent & 0x00FFFFFF) | 0xB0000000);
+            if (r.round) {
+                c.drawCircle(cx, cy, r.w + 4, mPaint);
+            } else {
+                mRect.set(r.x - 4, r.y - 4, r.x + r.w + 4, r.y + r.h + 4);
+                c.drawRoundRect(mRect, (r.h + 8) / 2, (r.h + 8) / 2, mPaint);
+            }
+            mPaint.setStyle(Paint.Style.STROKE);
+            mPaint.setStrokeWidth(8);
+            mPaint.setColor(mAccent);
+            if (r.round) {
+                c.drawCircle(cx, cy, r.w + 12, mPaint);
+            } else {
+                mRect.set(r.x - 10, r.y - 10, r.x + r.w + 10, r.y + r.h + 10);
+                c.drawRoundRect(mRect, (r.h + 20) / 2, (r.h + 20) / 2, mPaint);
+            }
+        }
         if (selected || remapped) {
             mPaint.setStyle(Paint.Style.STROKE);
             mPaint.setStrokeWidth(selected ? 9 : 6);
@@ -290,6 +402,21 @@ final class ConsoleMapView extends View {
                 mRect.set(r.x - 8, r.y - 8, r.x + r.w + 8, r.y + r.h + 8);
                 c.drawRoundRect(mRect, (r.h + 16) / 2, (r.h + 16) / 2, mPaint);
             }
+        }
+        if (r.scan != 0 && mTurbo.get(r.scan, 0) > 0) {
+            // the rate above the button
+            final String label = "⚡ " + mTurbo.get(r.scan) + "/s";
+            mPaint.setStyle(Paint.Style.FILL);
+            mPaint.setTextSize(28);
+            final float width = mPaint.measureText(label) + 22;
+            final float top = (r.round ? cy - r.w - 54 : r.y - 52);
+            final float left = Math.max(4, Math.min(W - width - 4, cx - width / 2));
+            mRect.set(left, top, left + width, top + 40);
+            mPaint.setColor(0xFF3A2C12);
+            c.drawRoundRect(mRect, 20, 20, mPaint);
+            mPaint.setColor(0xFFF2C14A);
+            mPaint.setTextAlign(Paint.Align.LEFT);
+            c.drawText(label, left + 11, top + 29, mPaint);
         }
         if (remapped) {
             // "A -> B" under or beside the button

@@ -123,7 +123,7 @@ public class UpdateService extends Service {
 
         Updates.sState = Updates.APPLYING;
         Updates.sPercent = 0;
-        Updates.sMessage = "Installing";
+        Updates.sMessage = "Writing the new system";
         notifyProgress("Installing in the background", -1);
         final UpdateEngine engine = new UpdateEngine();
         final String[] result = {null};
@@ -134,6 +134,11 @@ public class UpdateService extends Service {
                 @Override
                 public void onStatusUpdate(int status, float percent) {
                     Updates.sPercent = (int) (percent * 100);
+                    // update_engine: 3 downloading/writing, 4 verifying, 5 finalizing, 6 done
+                    Updates.sMessage = status == 4 ? "Verifying the new system"
+                            : status == 5 ? "Finalizing" : status >= 6 ? "Almost done"
+                            : "Writing the new system";
+                    notifyProgress(Updates.sMessage, Updates.sPercent);
                 }
 
                 @Override

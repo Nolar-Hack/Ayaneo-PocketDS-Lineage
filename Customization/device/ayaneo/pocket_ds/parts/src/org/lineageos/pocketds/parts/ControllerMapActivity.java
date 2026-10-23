@@ -29,6 +29,7 @@ public class ControllerMapActivity extends Activity {
     private ControllerProfiles.Named mNamed;
     private SharedPreferences mPrefs;
     private SparseIntArray mMap = new SparseIntArray();
+    private SparseIntArray mTurbo = new SparseIntArray();   // scan code -> presses per second
     private ConsoleMapView mView;
     private LinearLayout mDetail;
     private int mSelected;
@@ -50,6 +51,7 @@ public class ControllerMapActivity extends Activity {
         final LinearLayout card = mUi.card(page);
         mView = new ConsoleMapView(this, Ui.sAccent);
         mView.setMap(mMap);
+        mView.setTurbo(mTurbo);
         mView.setListener(this::picked);
         final LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
@@ -63,6 +65,71 @@ public class ControllerMapActivity extends Activity {
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT));
         detail(null);
+        if (mNamed != null) {
+            mUi.section(page, "Profile");
+            mOptions = mUi.card(page);
+            paintOptions();
+        }
+    }
+
+    // ---- the other settings of a profile: below the drawing, the remapping comes first
+
+    private LinearLayout mOptions;
+    private static final int[] ZONES = {-1, 0, 5, 10, 15, 20, 25};
+
+    private static String choiceText(int value) {
+        return value < 0 ? "Same as everywhere" : value == 1 ? "On" : "Off";
+    }
+
+    private void paintOptions() {
+        mOptions.removeAllViews();
+        final ControllerProfiles.Profile p = mNamed.profile;
+        mUi.actionRow(mOptions, "🔀", Ui.BLUE, "Swap A ↔ B", choiceText(p.swapAb), () -> {
+            p.swapAb = p.swapAb < 0 ? 1 : p.swapAb == 1 ? 0 : -1;
+            saveProfile();
+        });
+        mUi.actionRow(mOptions, "🔀", Ui.BLUE, "Swap X ↔ Y", choiceText(p.swapXy), () -> {
+            p.swapXy = p.swapXy < 0 ? 1 : p.swapXy == 1 ? 0 : -1;
+            saveProfile();
+        });
+        mUi.actionRow(mOptions, "🎯", Ui.TEAL, "Dead zone", p.zone < 0 ? "Same as everywhere"
+                : p.zone == 0 ? "None" : p.zone + " %", () -> {
+            int i = 0;
+            while (i < ZONES.length && ZONES[i] != p.zone) i++;
+            p.zone = ZONES[(i + 1) % ZONES.length];
+            saveProfile();
+        });
+        mUi.actionRow(mOptions, "✏️", Ui.ORANGE, "Rename", mNamed.name, this::rename);
+        mUi.actionRow(mOptions, "🗑️", Ui.RED, "Delete this profile",
+                "The apps that use it go back to the setup of every app", this::delete);
+    }
+
+    private void saveProfile() {
+        ControllerProfiles.update(mPrefs, mNamed);
+        Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show();
+        paintOptions();
+    }
+
+    private void rename() {
+        final android.widget.EditText input = new android.widget.EditText(this);
+        input.setSingleLine(true);
+        input.setText(mNamed.name);
+        input.setSelection(mNamed.name.length());
+        new android.app.AlertDialog.Builder(this).setTitle("Rename the profile").setView(input)
+                .setPositiveButton("Save", (d, w) -> {
+                    final String name = input.getText().toString().trim();
+                    if (!name.isEmpty()) mNamed.name = name;
+                    saveProfile();
+                }).setNegativeButton("Cancel", null).show();
+    }
+
+    private void delete() {
+        new android.app.AlertDialog.Builder(this).setTitle("Delete " + mNamed.name + "?")
+                .setMessage("The apps that use it go back to the setup of every app.")
+                .setPositiveButton("Delete", (d, w) -> {
+                    ControllerProfiles.delete(mPrefs, mNamed.id);
+                    finish();
+                }).setNegativeButton("Cancel", null).show();
     }
 
     private void load() {
@@ -74,6 +141,21 @@ public class ControllerMapActivity extends Activity {
                     : SystemProperties.get(ControllerProfiles.PROP_MAP, "");
         }
         mMap = ControllerProfiles.parseMap(text);
+        final String turbo = mNamed != null && mNamed.profile.turbo != null ? mNamed.profile.turbo
+                : SystemProperties.get(ControllerProfiles.PROP_TURBO, "");
+        mTurbo = ControllerProfiles.parseMap(turbo);
+    }
+
+    private void saveTurbo() {
+        final String text = ControllerProfiles.encodeMap(mTurbo);
+        if (mNamed == null) {
+            SystemProperties.set(ControllerProfiles.PROP_TURBO, text);
+        } else {
+            mNamed.profile.turbo = text;
+            ControllerProfiles.update(mPrefs, mNamed);
+        }
+        mView.setTurbo(mTurbo);
+        Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show();
     }
 
     private void save() {
@@ -89,6 +171,7 @@ public class ControllerMapActivity extends Activity {
             ControllerProfiles.update(mPrefs, mNamed);
         }
         mView.setMap(mMap);
+        Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show();
     }
 
     private void picked(ConsoleMapView.Region region) {
@@ -169,6 +252,41 @@ public class ControllerMapActivity extends Activity {
                 android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
         np.topMargin = mUi.dp(14);
         box.addView(normal, np);
+
+        // Turbo: held down, the button presses itself again and again, as fast as chosen
+        final int rate = mTurbo.get(region.scan, 0);
+        final TextView turboTitle = text("Turbo " + (rate == 0 ? "is off" : "· " + rate
+                + " presses per second"), 16, mUi.text, true);
+        final LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        tp.topMargin = mUi.dp(22);
+        box.addView(turboTitle, tp);
+        box.addView(text("Hold " + region.name + ": it presses itself again and again while you "
+                + "keep it down. Pick how fast.", 14, mUi.textDim, false));
+        LinearLayout rates = null;
+        for (int i = 0; i < ControllerProfiles.TURBO_RATES.length; i++) {
+            if (i % 4 == 0) {
+                rates = new LinearLayout(this);
+                final LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+                rl.topMargin = mUi.dp(10);
+                box.addView(rates, rl);
+            }
+            final int value = ControllerProfiles.TURBO_RATES[i];
+            final TextView pill = mUi.pill(value == 0 ? "Off" : value + " / s", Ui.sAccent,
+                    value == rate, v -> {
+                        if (value == 0) mTurbo.delete(region.scan);
+                        else mTurbo.put(region.scan, value);
+                        saveTurbo();
+                        detail(region);
+                    });
+            final LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(0,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            pp.rightMargin = mUi.dp(8);
+            rates.addView(pill, pp);
+        }
     }
 
     private View resetButton() {

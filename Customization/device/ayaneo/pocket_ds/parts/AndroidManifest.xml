@@ -84,6 +84,12 @@
             android:exported="false"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
         <activity
+            android:name=".ControllerTestActivity"
+            android:taskAffinity=".extra"
+            android:label="Test and calibration"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+        <activity
             android:name=".ControllerMapActivity"
             android:taskAffinity=".extra"
             android:label="Button remapping"

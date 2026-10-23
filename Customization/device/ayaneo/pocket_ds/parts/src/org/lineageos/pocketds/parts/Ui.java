@@ -402,6 +402,31 @@ final class Ui {
         return row;
     }
 
+    /** A thin progress bar across a card, under a row; percent below 0 shows a half-filled bar. */
+    void progressBar(LinearLayout card, int percent, int color) {
+        final LinearLayout track = new LinearLayout(context);
+        final android.graphics.drawable.GradientDrawable back =
+                new android.graphics.drawable.GradientDrawable();
+        back.setCornerRadius(dp(4));
+        back.setColor(divider);
+        track.setBackground(back);
+        final int shown = percent < 0 ? 100 : Math.max(2, Math.min(100, percent));
+        final View fill = new View(context);
+        final android.graphics.drawable.GradientDrawable front =
+                new android.graphics.drawable.GradientDrawable();
+        front.setCornerRadius(dp(4));
+        front.setColor(color);
+        fill.setBackground(front);
+        track.addView(fill, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT,
+                shown));
+        track.addView(new View(context), new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.MATCH_PARENT, 100 - shown));
+        final LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(8));
+        params.setMargins(dp(18), 0, dp(18), dp(14));
+        card.addView(track, params);
+    }
+
     void setSummary(Row row, String summary) {
         row.summary.setText(summary);
         row.summary.setVisibility(summary == null || summary.isEmpty() ? View.GONE : View.VISIBLE);

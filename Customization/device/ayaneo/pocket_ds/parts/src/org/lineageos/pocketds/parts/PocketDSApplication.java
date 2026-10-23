@@ -18,6 +18,8 @@ public class PocketDSApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        // A test page that was killed must not leave the buttons of the console switched off.
+        android.os.SystemProperties.set(ControllerTestActivity.PROP_BUTTONS_TEST, "false");
         // One controller failing must not keep the others from starting.
         start("SecondScreen", () -> new SecondScreenController(this).start());
         start("Performance", () -> new PerformanceController(this).start());
