@@ -51,6 +51,9 @@ final class PerformanceProfiles {
         boolean gpuFixed;
     }
 
+    /** Counts the profiles applied: the GPU floor then is the one of the profile again. */
+    static volatile int sApplied;
+
     private final Context mContext;
     private final Profile[] mProfiles = new Profile[NAMES.length];
 
@@ -76,6 +79,7 @@ final class PerformanceProfiles {
 
     /** Writes the frequencies of a profile (CPU: allowed to the app, GPU: root). */
     void apply(int mode) {
+        sApplied++;
         final Profile profile = get(mode);
         final StringBuilder gpu = new StringBuilder();
         for (int cpu = 0; cpu < profile.cpuKhz.length; cpu++) {
@@ -90,7 +94,11 @@ final class PerformanceProfiles {
         gpu.append("echo ").append(profile.gpuMaxHz).append(" > ").append(GPU).append("max_gpuclk\n");
         gpu.append("echo ").append(profile.gpuMaxHz).append(" > ").append(GPU)
                 .append("devfreq/max_freq\n");
-        gpu.append("echo ").append(profile.gpuFixed ? profile.gpuMaxHz : profile.gpuMinHz)
+        // The floor of the profile (see GpuFloorController) is raised only for the apps that ask
+        // for it: here the GPU may fall to its lowest frequency, as it always did.
+        final long[] gpuSteps = gpuFrequencies();
+        gpu.append("echo ").append(profile.gpuFixed ? profile.gpuMaxHz
+                : gpuSteps.length == 0 ? profile.gpuMinHz : gpuSteps[0])
                 .append(" > ").append(GPU).append("devfreq/min_freq");
         RootShell.run(gpu.toString().split("\n"));
         Log.i(TAG, "Profile " + NAMES[Math.max(0, Math.min(NAMES.length - 1, mode))] + " applied");
@@ -167,6 +175,15 @@ final class PerformanceProfiles {
         final Profile profile = get(mode);
         profile.gpuMaxHz = hz;
         if (profile.gpuMinHz > hz || profile.gpuFixed) profile.gpuMinHz = hz;
+    }
+
+    /**
+     * Sets the lowest frequency the GPU may fall to in a profile (never above its highest one).
+     * Some custom drivers (Turnip) never make the governor climb: a floor keeps the GPU fast.
+     */
+    void setGpuMin(int mode, long hz) {
+        final Profile profile = get(mode);
+        profile.gpuMinHz = Math.min(hz, profile.gpuMaxHz);
     }
 
     /** Writes the profiles to the file of the app (the built-in ones stay as they are). */

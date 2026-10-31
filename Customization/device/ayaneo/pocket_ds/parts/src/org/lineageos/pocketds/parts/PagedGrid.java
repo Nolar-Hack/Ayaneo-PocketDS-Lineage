@@ -87,6 +87,14 @@ final class PagedGrid extends FrameLayout {
         final int perPage = mColumns * mRows;
         mPages = Math.max(1, (mItems.size() + perPage - 1) / perPage);
         mPage = Math.min(mPage, mPages - 1);
+        // The strip is as wide as all its pages: a child outside the bounds of its parent is
+        // neither drawn nor touched, so with the width of one page only the first page showed.
+        mStrip.setClipChildren(false);
+        final ViewGroup.LayoutParams stripParams = mStrip.getLayoutParams();
+        if (stripParams.width != width * mPages) {
+            stripParams.width = width * mPages;
+            mStrip.setLayoutParams(stripParams);
+        }
         final int cellW = width / mColumns;
         final int cellH = height / mRows;
         final int iconSize = Math.round(Math.min(cellW * 0.62f, cellH * 0.56f));

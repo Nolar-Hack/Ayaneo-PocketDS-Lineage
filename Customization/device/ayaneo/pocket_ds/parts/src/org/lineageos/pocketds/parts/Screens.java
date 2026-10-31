@@ -213,6 +213,40 @@ final class Screens {
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP), target);
     }
 
+    /**
+     * The home button of the console: from an app it shows the list of applications; pressed again
+     * on the list it goes back to the app that was open before (the one used last).
+     */
+    static void homeOrLastApp(Context context) {
+        int target = MODE_BOTH.equals(screenMode(context)) ? secondaryDisplayId(context)
+                : Display.DEFAULT_DISPLAY;
+        if (target == Display.INVALID_DISPLAY) target = Display.DEFAULT_DISPLAY;
+        final ForegroundWatcher watcher = ForegroundWatcher.get();
+        final ActivityManager.RunningTaskInfo last = watcher == null ? null : watcher.current();
+        if (last != null && listIsOnTop(context, target)) {
+            try {
+                context.getSystemService(ActivityManager.class).moveTaskToFront(last.taskId, 0);
+                return;
+            } catch (RuntimeException e) {
+                Log.w(TAG, "Cannot bring back " + last.baseActivity, e);
+            }
+        }
+        showSecondHome(context);
+    }
+
+    /** True when the list of applications is what the given display shows now. */
+    private static boolean listIsOnTop(Context context, int display) {
+        for (ActivityManager.RunningTaskInfo task : context.getSystemService(ActivityManager.class)
+                .getRunningTasks(40)) {
+            if (task.displayId != display || task.baseActivity == null) continue;
+            if (task.configuration.windowConfiguration.getActivityType()
+                    == android.app.WindowConfiguration.ACTIVITY_TYPE_RECENTS) continue;
+            return SecondHomeActivity.class.getName().equals(task.topActivity == null ? null
+                    : task.topActivity.getClassName());
+        }
+        return false;
+    }
+
     private static void startOn(Context context, Intent intent, int display) {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         final ActivityOptions options = ActivityOptions.makeBasic();

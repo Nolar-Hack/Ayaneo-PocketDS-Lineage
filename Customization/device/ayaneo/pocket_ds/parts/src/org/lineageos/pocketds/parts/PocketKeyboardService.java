@@ -63,6 +63,40 @@ public class PocketKeyboardService extends InputMethodService {
     private boolean mAzerty = Locale.getDefault().getLanguage().equals("fr");
     private final StringBuilder mTyped = new StringBuilder();
 
+    /** The button of the console: show the keyboard and keep it open, or hide it again. */
+    static final String ACTION_TOGGLE = "org.lineageos.pocketds.parts.KEYBOARD";
+    private boolean mPinned;
+    private final android.content.BroadcastReceiver mToggle =
+            new android.content.BroadcastReceiver() {
+        @Override
+        public void onReceive(android.content.Context context, android.content.Intent intent) {
+            mPinned = !mPinned;
+            if (mPinned) requestShowSelf(0); else requestHideSelf(0);
+        }
+    };
+
+    @Override
+    public void onDestroy() {
+        unregisterReceiver(mToggle);
+        super.onDestroy();
+    }
+
+    /** Kept open by the button: the system hiding it (a focus change) shows it again. */
+    @Override
+    public boolean onEvaluateInputViewShown() {
+        return mPinned || super.onEvaluateInputViewShown();
+    }
+
+    @Override
+    public void onWindowHidden() {
+        super.onWindowHidden();
+        if (mPinned) {
+            mHandler.postDelayed(() -> {
+                if (mPinned) requestShowSelf(0);
+            }, 400);
+        }
+    }
+
     @Override
     public boolean onEvaluateFullscreenMode() {
         return false;
@@ -715,6 +749,8 @@ public class PocketKeyboardService extends InputMethodService {
     @Override
     public void onCreate() {
         super.onCreate();
+        registerReceiver(mToggle, new android.content.IntentFilter(ACTION_TOGGLE),
+                RECEIVER_NOT_EXPORTED);
         new Thread(() -> {
             loadLearned();
             final Dictionary fr = loadDictionary("words_fr.txt");

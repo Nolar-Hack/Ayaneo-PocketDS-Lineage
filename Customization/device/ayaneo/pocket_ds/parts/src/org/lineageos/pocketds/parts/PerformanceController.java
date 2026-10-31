@@ -33,6 +33,7 @@ class PerformanceController {
         profiles.apply(profiles.current());
         ProfileStatus.show(mContext, profiles.current());
         fan.start();
+        new GpuFloorController(mContext, profiles).start();
         // The profile button of the console (the system, see patch 0018) asks for the next profile.
         mContext.registerReceiver(new android.content.BroadcastReceiver() {
             @Override

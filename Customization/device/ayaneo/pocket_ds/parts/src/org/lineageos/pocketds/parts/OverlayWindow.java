@@ -792,6 +792,34 @@ final class OverlayWindow extends android.content.ContextWrapper {
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         other.addView(gpuRow, fill(14));
 
+        // The floor: the GPU never goes below it (a custom driver such as Turnip does not make
+        // the governor climb on its own, the floor keeps the game fast).
+        other.addView(titleRow("GPU floor", "Lowest frequency"), fill(18));
+        int floorIndex = 0;
+        for (int i = 0; i < gpuFreqs.length; i++) if (gpuFreqs[i] <= profile.gpuMinHz) floorIndex = i;
+        final TextView floorValue = text((gpuFreqs.length == 0 ? profile.gpuMinHz
+                : gpuFreqs[floorIndex]) / 1_000_000 + " MHz", 15, TEXT, true);
+        floorValue.setGravity(Gravity.END);
+        final LinearLayout floorRow = new LinearLayout(this);
+        floorRow.setGravity(Gravity.CENTER_VERTICAL);
+        final SeekBar floorSeek = slider(floorIndex, Math.max(1, gpuFreqs.length - 1),
+                new Changed() {
+            @Override
+            void changed(int position) {
+                if (gpuFreqs.length == 0) return;
+                engine.profiles.setGpuMin(mEditMode, gpuFreqs[position]);
+                // never above the highest one: the value shown is the one that is kept
+                floorValue.setText(Math.min(gpuFreqs[position], profile.gpuMaxHz) / 1_000_000
+                        + " MHz");
+            }
+        });
+        floorSeek.setEnabled(gpuFreqs.length > 0);
+        floorRow.addView(floorSeek, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        floorRow.addView(floorValue, new LinearLayout.LayoutParams(u(110),
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        other.addView(floorRow, fill(14));
+
         final LinearLayout fan = columnCard(cols[1], 12);
         fan.addView(titleRow("Fan", null));
         final String[] fanNames = {"Off", "Mute", "Balance", "Turbo"};

@@ -240,6 +240,37 @@ public class ControllerMapActivity extends Activity {
             }
             return;
         }
+        final String button = ButtonActions.buttonOf(region.name);
+        if (button != null) {
+            // An extra button of the console: the user picks what it does.
+            mSelected = 0;
+            mView.setSelected(-1);
+            box.addView(text(region.name + " does: " + actionName(ButtonActions.get(this, button)),
+                    18, mUi.text, true));
+            box.addView(text("Pick what this button does:", 14, mUi.textDim, false));
+            LinearLayout actions = null;
+            for (int i = 0; i < ButtonActions.IDS.length; i++) {
+                if (i % 2 == 0) {
+                    actions = new LinearLayout(this);
+                    final LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(
+                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+                    al.topMargin = mUi.dp(10);
+                    box.addView(actions, al);
+                }
+                final String id = ButtonActions.IDS[i];
+                final TextView pill = mUi.pill(ButtonActions.NAMES[i], Ui.sAccent,
+                        id.equals(ButtonActions.get(this, button)), v -> {
+                            ButtonActions.set(this, button, id);
+                            detail(region);
+                        });
+                final LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(0,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                pp.rightMargin = mUi.dp(8);
+                actions.addView(pill, pp);
+            }
+            return;
+        }
         if (region.fixed()) {
             box.addView(text(region.name, 18, mUi.text, true));
             box.addView(text(region.note == null ? "Kept by the system" : region.name + ": "
@@ -319,6 +350,13 @@ public class ControllerMapActivity extends Activity {
             pp.rightMargin = mUi.dp(8);
             rates.addView(pill, pp);
         }
+    }
+
+    private static String actionName(String id) {
+        for (int i = 0; i < ButtonActions.IDS.length; i++) {
+            if (ButtonActions.IDS[i].equals(id)) return ButtonActions.NAMES[i];
+        }
+        return id;
     }
 
     private View resetButton() {

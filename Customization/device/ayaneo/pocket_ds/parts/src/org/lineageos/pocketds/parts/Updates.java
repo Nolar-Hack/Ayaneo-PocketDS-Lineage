@@ -83,6 +83,7 @@ final class Updates {
         String version;
         int code;
         String date;
+        String notes;
         Pack full;
         Pack incremental;
 
@@ -160,6 +161,7 @@ final class Updates {
         info.version = o.getString("version");
         info.code = o.getInt("versionCode");
         info.date = o.optString("date", "");
+        info.notes = o.optString("notes", "");
         info.full = pack(o.getJSONObject("full"));
         final JSONObject inc = o.optJSONObject("incremental");
         if (inc != null) {

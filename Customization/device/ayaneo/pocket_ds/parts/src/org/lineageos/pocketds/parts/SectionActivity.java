@@ -653,6 +653,9 @@ public class SectionActivity extends Activity {
                     (info.date.isEmpty() ? "" : info.date + " · ")
                             + (pack == info.full ? "Complete package " : "Small update ")
                             + Updates.size(pack.size));
+            if (info.notes != null && !info.notes.isEmpty()) {
+                ui.row(now, "📝", Ui.PURPLE, "What's new", info.notes);
+            }
             if (Updates.sState == Updates.FAILED) {
                 ui.row(now, "⚠️", Ui.RED, "Last attempt failed", Updates.sMessage);
             }
@@ -852,19 +855,29 @@ public class SectionActivity extends Activity {
             row[0] = ui.actionRow(card, "🎮", Ui.PURPLE, label, gameText(prefs, key, pkg), () ->
                     new android.app.AlertDialog.Builder(this).setTitle(title)
                             .setItems(new String[] {"Performance profile",
-                                "Controller profile"}, (d, which) -> {
+                                "Controller profile",
+                                "GPU floor: " + (GpuFloorController.isOn(prefs, pkg) ? "on (tap to switch off)"
+                                        : "off (tap to switch on)")}, (d, which) -> {
                                 if (which == 0) performanceDialog(prefs, key, title, choices, refresh);
-                                else controllerPickDialog(prefs, pkg, title, refresh);
+                                else if (which == 1) controllerPickDialog(prefs, pkg, title, refresh);
+                                else {
+                                    prefs.edit().putBoolean(GpuFloorController.KEY_PREFIX + pkg,
+                                            !GpuFloorController.isOn(prefs, pkg)).apply();
+                                    refresh.run();
+                                }
                             }).show());
         }
         ui.note(page, "When you leave the app, the profile and the controller setup you had "
-                + "come back. Controller profiles are made in Controller.");
+                + "come back. Controller profiles are made in Controller. The GPU floor (set "
+                + "per profile in the overlay, lowest = none) is only raised for the apps that have "
+                + "it switched on.");
     }
 
     private String gameText(android.content.SharedPreferences prefs, String key, String pkg) {
         final ControllerProfiles.Named pad = ControllerProfiles.find(prefs,
                 ControllerProfiles.assignedId(prefs, pkg));
-        return profileText(prefs, key) + (pad == null ? "" : " · Controller: " + pad.name);
+        return profileText(prefs, key) + (pad == null ? "" : " · Controller: " + pad.name)
+                + (GpuFloorController.isOn(prefs, pkg) ? " · GPU floor" : "");
     }
 
     private void performanceDialog(android.content.SharedPreferences prefs, String key,

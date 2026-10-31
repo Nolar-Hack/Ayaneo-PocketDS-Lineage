@@ -1,0 +1,39 @@
+Subject: [PATCH] Ayaneo Pocket DS buttons: the system only tells PocketDS Extra which button was pressed
+
+The swap, AYA, home, profile and FPS buttons each sent their own broadcast (the swap did its job
+in the system). They now all send org.lineageos.pocketds.parts.BUTTON with the name of the button
+(swap, aya, home, profile, fps); PocketDS Extra decides what the button does, the user can change
+it in the Controller page. The long press of the swap button (controller to the other screen) is
+unchanged.
+
+diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.java b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+--- a/services/core/java/com/android/server/policy/PhoneWindowManager.java
++++ b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+@@ -4815,13 +4815,21 @@
+             default:
+                 action = null;
+         }
++        // The long press of the swap button keeps its own broadcast. Every other press tells
++        // PocketDS Extra which button it was: the user chooses there what each button does (the
++        // defaults are the former actions), so the system has no list of actions to keep up.
++        final String button;
++        switch (code) {
++            case POCKETDS_KEY_SWAP: button = "swap"; break;
++            case POCKETDS_KEY_OVERLAY: button = "aya"; break;
++            case POCKETDS_KEY_HOME: button = "home"; break;
++            case POCKETDS_KEY_PROFILE: button = "profile"; break;
++            default: button = "fps"; break;
++        }
+         mHandler.post(() -> {
+-            if (action == null) {
+-                togglePocketDsSwap();
+-            } else {
+-                mContext.sendBroadcastAsUser(new Intent(action).setPackage(POCKETDS_PACKAGE),
+-                        UserHandle.CURRENT);
+-            }
++            final Intent intent = held && action != null ? new Intent(action)
++                    : new Intent("org.lineageos.pocketds.parts.BUTTON").putExtra("button", button);
++            mContext.sendBroadcastAsUser(intent.setPackage(POCKETDS_PACKAGE), UserHandle.CURRENT);
+         });
+         return true;
+     }

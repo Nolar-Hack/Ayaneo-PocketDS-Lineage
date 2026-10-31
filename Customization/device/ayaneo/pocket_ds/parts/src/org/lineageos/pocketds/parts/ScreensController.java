@@ -45,7 +45,7 @@ class ScreensController {
         mContext.registerReceiver(new android.content.BroadcastReceiver() {
             @Override
             public void onReceive(Context context, android.content.Intent intent) {
-                Screens.showSecondHome(mContext);
+                Screens.homeOrLastApp(mContext);
             }
         }, new android.content.IntentFilter(ACTION_SHOW_SECOND_HOME),
                 Context.RECEIVER_NOT_EXPORTED);
@@ -57,6 +57,14 @@ class ScreensController {
             }
         }, new android.content.IntentFilter(ACTION_TOGGLE_OVERLAY),
                 Context.RECEIVER_NOT_EXPORTED);
+        // Every other press of the extra buttons: the system names the button, the action is the
+        // one chosen in the Controller page.
+        mContext.registerReceiver(new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, android.content.Intent intent) {
+                ButtonActions.run(mContext, intent.getStringExtra("button"));
+            }
+        }, new android.content.IntentFilter(ButtonActions.ACTION), Context.RECEIVER_NOT_EXPORTED);
         // Long press of the swap button: the controller goes to the other screen.
         mContext.registerReceiver(new android.content.BroadcastReceiver() {
             @Override

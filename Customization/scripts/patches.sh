@@ -165,6 +165,34 @@ patch_project() {
     done
 }
 
+# Before a repo sync: every file the patches touched goes back to the synced state (an upstream
+# change to one of them would otherwise stop the checkout: "local changes would be overwritten"),
+# and the records are cleared so that the next apply puts all the patches on again.
+patch_put_back() {   # [src dir]
+    local src="${1:-$SRC_DIR}" proj dir state p f
+    while IFS= read -r proj; do
+        dir="$src/$proj"
+        [[ -e "$dir/.git" ]] || continue
+        state="$(patch_state_file "$dir")"
+        local -a touched=()
+        while IFS= read -r p; do
+            while IFS= read -r f; do touched+=("$f"); done < <(patch_touched "$p")
+        done < <(patch_files "$proj")
+        [[ -f "$state.files" ]] && while IFS= read -r f; do touched+=("$f"); done < "$state.files"
+        mapfile -t touched < <(printf '%s\n' "${touched[@]}" | sed '/^$/d' | sort -u)
+        info "$proj: putting back ${#touched[@]} patched files before the sync"
+        for f in "${touched[@]}"; do
+            if git -C "$dir" ls-files --error-unmatch -- "$f" &>/dev/null; then
+                git -C "$dir" checkout -- "$f"
+            else
+                rm -f "$dir/$f"
+            fi
+        done
+        : > "$state"
+        : > "$state.files"
+    done < <(patch_projects)
+}
+
 apply_patches() {   # [src dir]
     local src="${1:-$SRC_DIR}" proj
     while IFS= read -r proj; do patch_project "$proj" "$src"; done < <(patch_projects)

@@ -142,6 +142,28 @@ public class SecondHomeActivity extends Activity {
         for (int i = 1; i < bar.getChildCount(); i++) {
             ((LinearLayout.LayoutParams) bar.getChildAt(i).getLayoutParams()).leftMargin = dp(8);
         }
+        // The time, top right: the hour (12 or 24 h as the system is set) over the date.
+        final LinearLayout clock = new LinearLayout(this);
+        clock.setOrientation(LinearLayout.VERTICAL);
+        clock.setGravity(Gravity.END);
+        final android.widget.TextClock time = new android.widget.TextClock(this);
+        time.setTextColor(0xFFE9ECF2);
+        time.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 26);
+        time.setTypeface(android.graphics.Typeface.create("sans-serif",
+                android.graphics.Typeface.BOLD));
+        time.setSingleLine(true);
+        clock.addView(time);
+        final android.widget.TextClock date = new android.widget.TextClock(this);
+        date.setFormat12Hour("EEE d MMM");
+        date.setFormat24Hour("EEE d MMM");
+        date.setTextColor(0xFF98A2B3);
+        date.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14);
+        date.setSingleLine(true);
+        clock.addView(date);
+        final LinearLayout.LayoutParams clockParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        clockParams.leftMargin = dp(18);
+        bar.addView(clock, clockParams);
         root.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT));
 

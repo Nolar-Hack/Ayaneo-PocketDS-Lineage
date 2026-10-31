@@ -136,6 +136,9 @@ phase_sync() {
     # file, not GIT_CONFIG_GLOBAL: give it a home of its own with the answers, so it never asks.
     mkdir -p "$SRC_DIR/.repo-home"
     cp -f "$GIT_CONFIG_GLOBAL" "$SRC_DIR/.repo-home/.gitconfig"
+    # The files the patches changed go back first: a sync that brings a new version of one of them
+    # is refused by git otherwise. --copy puts the patches on again.
+    patch_put_back "$SRC_DIR"
     (cd "$SRC_DIR" &&
         HOME="$SRC_DIR/.repo-home" repo init -u https://github.com/LineageOS/android.git -b lineage-24.0 --git-lfs --depth=1 --no-clone-bundle &&
         repo sync -c -j"$SYNC_JOBS" --force-sync --no-tags --no-clone-bundle --optimized-fetch --retry-fetches=3)

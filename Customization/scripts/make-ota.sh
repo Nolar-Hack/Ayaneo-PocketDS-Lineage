@@ -127,6 +127,9 @@ meta() { unzip -p "$1" META-INF/com/android/metadata | sed -n "s/^$2=//p"; }
 FULL="$OTA_DIR/Full/$NAME-full.zip"
 INC="$OTA_DIR/Incremental/$NAME-incremental.zip"
 export NAME VERSION VERSION_CODE RELEASE_URL FULL INC
+# "notes" of update.json: the "- " lines of OTA/release-notes-<version>.md, shown in PocketDS Extra.
+NOTES_FILE="$OTA_DIR/release-notes-$VERSION.md"
+export NOTES_TEXT="$( [[ -f "$NOTES_FILE" ]] && sed -n 's/^- //p' "$NOTES_FILE" | sed 's/^/• /' || true )"
 export BUILD_ID="$(meta "$FULL" post-build-incremental)"
 [[ -f "$INC" ]] && export FROM_ID="$(meta "$INC" pre-build-incremental)" || export FROM_ID=""
 python3 - <<'PY' > "$OTA_DIR/update.json"
@@ -140,7 +143,7 @@ def entry(path):
             "size": os.path.getsize(path), "sha256": h.hexdigest()}
 e = os.environ
 d = {"version": e["VERSION"], "versionCode": int(e["VERSION_CODE"]), "buildId": e["BUILD_ID"],
-     "date": __import__("datetime").date.today().isoformat(), "full": entry(e["FULL"]), "incremental": None}
+     "date": __import__("datetime").date.today().isoformat(), "notes": e["NOTES_TEXT"], "full": entry(e["FULL"]), "incremental": None}
 if e["FROM_ID"] and os.path.isfile(e["INC"]):
     d["incremental"] = dict(entry(e["INC"]), **{"from": e["FROM_ID"]})
 print(json.dumps(d, indent=2))
