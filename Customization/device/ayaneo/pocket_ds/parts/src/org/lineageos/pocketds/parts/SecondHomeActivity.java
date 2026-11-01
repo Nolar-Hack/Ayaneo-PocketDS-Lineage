@@ -131,7 +131,7 @@ public class SecondHomeActivity extends Activity {
         bar.addView(headerButton("Running", false, 0, v -> showRunning()));
         bar.addView(headerButton("Settings", false, 0, v -> {
             startActivity(new Intent(this, PartsSettingsActivity.class)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         }));
         bar.addView(headerButton("Kill all", false, 0xFFF58A7F, v -> {
             final int closed = Screens.killAll(this);

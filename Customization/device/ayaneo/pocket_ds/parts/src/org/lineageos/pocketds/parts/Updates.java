@@ -86,9 +86,14 @@ final class Updates {
         String notes;
         Pack full;
         Pack incremental;
+        /** One incremental package for each older release that can update to this one directly. */
+        final java.util.List<Pack> incrementals = new java.util.ArrayList<>();
 
         /** The incremental package when it starts from exactly the installed build, else the full. */
         Pack pick() {
+            for (Pack pack : incrementals) {
+                if (pack.from != null && pack.from.equals(buildId())) return pack;
+            }
             if (incremental != null && incremental.from != null
                     && incremental.from.equals(buildId())) {
                 return incremental;
@@ -167,6 +172,13 @@ final class Updates {
         if (inc != null) {
             info.incremental = pack(inc);
             info.incremental.from = inc.optString("from", null);
+        }
+        final org.json.JSONArray list = o.optJSONArray("incrementals");
+        for (int i = 0; list != null && i < list.length(); i++) {
+            final JSONObject item = list.getJSONObject(i);
+            final Pack pack = pack(item);
+            pack.from = item.optString("from", null);
+            info.incrementals.add(pack);
         }
         return info;
     }

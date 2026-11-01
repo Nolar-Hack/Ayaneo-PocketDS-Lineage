@@ -31,6 +31,9 @@ import java.util.List;
  * no way back. Two thin invisible strips along its left and right edges turn a swipe towards the
  * inside of the screen into a Back key sent to that screen.
  *
+ * The strips are application overlays: a system overlay window can never take touches (the
+ * window policy adds FLAG_NOT_TOUCHABLE to it), so the swipe was never seen.
+ *
  * The strip follows the display that is not the default one, so it moves with a swap of the
  * screens.
  */
@@ -77,7 +80,7 @@ class SecondScreenGestures implements DisplayManager.DisplayListener,
                     .getDisplay(displayId);
             if (display == null) return;
             final Context windowContext = mContext.createDisplayContext(display)
-                    .createWindowContext(WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY, null);
+                    .createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY, null);
             mWindowManager = windowContext.getSystemService(WindowManager.class);
             final int edge = Math.round(EDGE_DP * windowContext.getResources()
                     .getDisplayMetrics().density);
@@ -124,7 +127,7 @@ class SecondScreenGestures implements DisplayManager.DisplayListener,
         });
         final WindowManager.LayoutParams lp = new WindowManager.LayoutParams(edge,
                 WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,

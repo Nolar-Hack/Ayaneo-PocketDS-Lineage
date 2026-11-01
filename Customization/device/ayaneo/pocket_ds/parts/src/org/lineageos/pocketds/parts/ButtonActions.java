@@ -38,25 +38,32 @@ final class ButtonActions {
         return null;
     }
 
-    private static String key(String button) {
-        return "button_" + button;
+    private static String key(String button, boolean longPress) {
+        return "button_" + button + (longPress ? "_long" : "");
     }
 
-    static String get(Context context, String button) {
-        String fallback = "none";
-        for (int i = 0; i < BUTTONS.length; i++) {
-            if (BUTTONS[i].equals(button)) fallback = DEFAULTS[i];
+    /**
+     * The action of a button for a short or a long press. A short press keeps its former job; a
+     * long press does nothing, except on the swap button where it gives the controller to the
+     * other screen, as it always did.
+     */
+    static String get(Context context, String button, boolean longPress) {
+        String fallback = longPress && "swap".equals(button) ? "focus" : "none";
+        if (!longPress) {
+            for (int i = 0; i < BUTTONS.length; i++) {
+                if (BUTTONS[i].equals(button)) fallback = DEFAULTS[i];
+            }
         }
-        return PartsPrefs.get(context).getString(key(button), fallback);
+        return PartsPrefs.get(context).getString(key(button, longPress), fallback);
     }
 
-    static void set(Context context, String button, String action) {
-        PartsPrefs.get(context).edit().putString(key(button), action).apply();
+    static void set(Context context, String button, boolean longPress, String action) {
+        PartsPrefs.get(context).edit().putString(key(button, longPress), action).apply();
     }
 
-    static void run(Context context, String button) {
+    static void run(Context context, String button, boolean longPress) {
         if (button == null) return;
-        switch (get(context, button)) {
+        switch (get(context, button, longPress)) {
             case "swap":
                 // only while both screens are in use (screen mode 1)
                 if (Screens.MODE_BOTH.equals(Screens.screenMode(context))) {

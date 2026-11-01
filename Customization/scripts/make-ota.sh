@@ -17,6 +17,12 @@
 # The target files hold the stock init_boot, without root: the one patched by build.sh replaces it
 # in both packages. They are signed with the key of the build (test key) and made for Virtual A/B.
 # An incremental package only applies to a device that runs exactly the Compare build.
+#
+# Updating from an older release in ONE restart: the target files of every release that was
+# published (publish-release.sh puts a .published mark on it) are kept in OTA/Work/History/<version>,
+# and for the KEEP_RELEASES newest of them an incremental package to the new build is made too
+# (<name>-from-<version>-incremental.zip). update.json lists them all ("incrementals"); a console
+# takes the one that starts from its own build, or the complete package when it has none.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -29,6 +35,8 @@ OTA_DIR="$REPO/../OTA"
 COMPARE=""
 INCREMENTAL=true
 PROMOTE=true
+# How many published releases get a direct incremental package to the new build.
+KEEP_RELEASES="${OTA_KEEP_RELEASES:-3}"
 # Devices the packages accept. The build is PocketDS, but a recovery reports the board name
 # (kalama) and sideload refuses "package is for product PocketDS but expected kalama".
 ASSERT_DEVICES="${OTA_ASSERT_DEVICES:-PocketDS|kalama}" # pocketds.conf
@@ -121,6 +129,31 @@ elif [[ "$INCREMENTAL" == true ]]; then
     echo "== no incremental package: Compare is empty ($COMPARE)"
 fi
 
+# --- direct incrementals from the published releases (one restart whatever the age of the console)
+HISTORY="$WORKROOT/History"
+if [[ "$INCREMENTAL" == true && -d "$HISTORY" ]]; then
+    # the newest published releases, but not this version and not the build Compare already covers
+    mapfile -t BASES < <(for d in "$HISTORY"/*/; do
+            v="$(basename "$d")"
+            [[ -f "$d/.published" && "$v" != "$VERSION" ]] && echo "$v"
+        done | sort -V | tail -n "$KEEP_RELEASES")
+    for v in "${BASES[@]}"; do
+        base="$HISTORY/$v"
+        [[ -d "$base/target_files" && -f "$base/init_boot.img" ]] || continue
+        if [[ -f "$COMPARE/images.sha256" ]] && cmp -s "$base/images.sha256" "$COMPARE/images.sha256"; then
+            echo "== from $v: same build as Compare, already made"
+            continue
+        fi
+        echo "== incremental package from $v"
+        rm -f "$WORK/base.zip"
+        prepare "$base" "$WORK/base.zip"
+        ota_from_target_files -k "$KEY" -i "$WORK/base.zip" "$WORK/new.zip" \
+            "$OTA_DIR/Incremental/$NAME-from-$v-incremental.zip"
+        (cd "$OTA_DIR/Incremental" && sha256sum "$NAME-from-$v-incremental.zip" \
+            > "$NAME-from-$v-incremental.zip.sha256sum")
+    done
+fi
+
 # --- update.json: what PocketDS Extra reads to offer the update (publish it next to the release).
 # "incremental" only applies to a device whose ro.build.version.incremental equals its "from".
 meta() { unzip -p "$1" META-INF/com/android/metadata | sed -n "s/^$2=//p"; }
@@ -132,6 +165,12 @@ NOTES_FILE="$OTA_DIR/release-notes-$VERSION.md"
 export NOTES_TEXT="$( [[ -f "$NOTES_FILE" ]] && sed -n 's/^- //p' "$NOTES_FILE" | sed 's/^/• /' || true )"
 export BUILD_ID="$(meta "$FULL" post-build-incremental)"
 [[ -f "$INC" ]] && export FROM_ID="$(meta "$INC" pre-build-incremental)" || export FROM_ID=""
+# every incremental package of this version, with the build it starts from
+INC_LIST=""
+for f in "$OTA_DIR"/Incremental/PocketDS-"$VERSION"-*-incremental.zip; do
+    [[ -f "$f" ]] && INC_LIST+="$f|$(meta "$f" pre-build-incremental)"$'\n'
+done
+export INC_LIST
 python3 - <<'PY' > "$OTA_DIR/update.json"
 import json, os, hashlib
 def entry(path):
@@ -146,6 +185,13 @@ d = {"version": e["VERSION"], "versionCode": int(e["VERSION_CODE"]), "buildId": 
      "date": __import__("datetime").date.today().isoformat(), "notes": e["NOTES_TEXT"], "full": entry(e["FULL"]), "incremental": None}
 if e["FROM_ID"] and os.path.isfile(e["INC"]):
     d["incremental"] = dict(entry(e["INC"]), **{"from": e["FROM_ID"]})
+# all the incremental packages, one for each build a console may run (the first that matches wins)
+incs = []
+for line in e["INC_LIST"].splitlines():
+    path, _, frm = line.partition("|")
+    if path and frm:
+        incs.append(dict(entry(path), **{"from": frm}))
+d["incrementals"] = incs
 print(json.dumps(d, indent=2))
 PY
 echo "update.json: $OTA_DIR/update.json (version $VERSION, code $VERSION_CODE)"
@@ -157,6 +203,19 @@ if [[ "$PROMOTE" == true ]]; then
     cp -al "$CURRENT" "$WORKROOT/Compare.new"
     rm -rf "$WORKROOT/Compare"
     mv "$WORKROOT/Compare.new" "$WORKROOT/Compare"
+fi
+# --- History: this build is kept (hard links) so that later releases can update from it once it is
+# published; the builds that were never published, and the oldest published ones, are dropped.
+if [[ "$PROMOTE" == true ]]; then
+    mkdir -p "$HISTORY"
+    rm -rf "$HISTORY/$VERSION"
+    cp -al "$CURRENT" "$HISTORY/$VERSION"
+    keep=" $(for d in "$HISTORY"/*/; do v="$(basename "$d")"; [[ -f "$d/.published" ]] && echo "$v"; done \
+        | sort -V | tail -n "$KEEP_RELEASES" | tr '\n' ' ')$VERSION "
+    for d in "$HISTORY"/*/; do
+        v="$(basename "$d")"
+        [[ "$keep" == *" $v "* ]] || { echo "== History: dropping $v"; rm -rf "$d"; }
+    done
 fi
 echo "== done"
 ls -la "$OTA_DIR/Full" "$OTA_DIR/Incremental"

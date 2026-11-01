@@ -112,6 +112,11 @@ final class OverlayWindow extends android.content.ContextWrapper {
         return sInstance == null ? -1 : sInstance.mDisplayId;
     }
 
+    /** True when the controller goes to the overlay while it is open (off by default). */
+    static boolean takesController(Context context) {
+        return !PartsPrefs.get(context).getBoolean(PartsPrefs.OVERLAY_GAME_FOCUS, true);
+    }
+
     private boolean mHasFocus;
 
     private OverlayWindow(Context windowContext) {
@@ -152,7 +157,11 @@ final class OverlayWindow extends android.content.ContextWrapper {
                 WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                        // Not focusable: the game keeps the keys and sticks of the controller
+                        // and the overlay is used by touch.
+                        | (takesController(this) ? 0
+                                : WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE),
                 PixelFormat.OPAQUE);
         lp.setTitle("PocketDS overlay");
         lp.setFitInsetsTypes(0);
@@ -792,34 +801,6 @@ final class OverlayWindow extends android.content.ContextWrapper {
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         other.addView(gpuRow, fill(14));
 
-        // The floor: the GPU never goes below it (a custom driver such as Turnip does not make
-        // the governor climb on its own, the floor keeps the game fast).
-        other.addView(titleRow("GPU floor", "Lowest frequency"), fill(18));
-        int floorIndex = 0;
-        for (int i = 0; i < gpuFreqs.length; i++) if (gpuFreqs[i] <= profile.gpuMinHz) floorIndex = i;
-        final TextView floorValue = text((gpuFreqs.length == 0 ? profile.gpuMinHz
-                : gpuFreqs[floorIndex]) / 1_000_000 + " MHz", 15, TEXT, true);
-        floorValue.setGravity(Gravity.END);
-        final LinearLayout floorRow = new LinearLayout(this);
-        floorRow.setGravity(Gravity.CENTER_VERTICAL);
-        final SeekBar floorSeek = slider(floorIndex, Math.max(1, gpuFreqs.length - 1),
-                new Changed() {
-            @Override
-            void changed(int position) {
-                if (gpuFreqs.length == 0) return;
-                engine.profiles.setGpuMin(mEditMode, gpuFreqs[position]);
-                // never above the highest one: the value shown is the one that is kept
-                floorValue.setText(Math.min(gpuFreqs[position], profile.gpuMaxHz) / 1_000_000
-                        + " MHz");
-            }
-        });
-        floorSeek.setEnabled(gpuFreqs.length > 0);
-        floorRow.addView(floorSeek, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        floorRow.addView(floorValue, new LinearLayout.LayoutParams(u(110),
-                ViewGroup.LayoutParams.WRAP_CONTENT));
-        other.addView(floorRow, fill(14));
-
         final LinearLayout fan = columnCard(cols[1], 12);
         fan.addView(titleRow("Fan", null));
         final String[] fanNames = {"Off", "Mute", "Balance", "Turbo"};
@@ -1187,7 +1168,9 @@ final class OverlayWindow extends android.content.ContextWrapper {
     private void openSettings(boolean unused) {
         startActivity(new Intent(this, SectionActivity.class)
                 .putExtra(SectionActivity.EXTRA_SECTION, SectionActivity.CONTROLLER)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                // A fresh page: otherwise the task of PocketDS Extra comes back as it was, with a
+                // picture picker still on top of it (no way back on the bottom screen).
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK));
         dismiss();
     }
 

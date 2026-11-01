@@ -177,15 +177,6 @@ final class PerformanceProfiles {
         if (profile.gpuMinHz > hz || profile.gpuFixed) profile.gpuMinHz = hz;
     }
 
-    /**
-     * Sets the lowest frequency the GPU may fall to in a profile (never above its highest one).
-     * Some custom drivers (Turnip) never make the governor climb: a floor keeps the GPU fast.
-     */
-    void setGpuMin(int mode, long hz) {
-        final Profile profile = get(mode);
-        profile.gpuMinHz = Math.min(hz, profile.gpuMaxHz);
-    }
-
     /** Writes the profiles to the file of the app (the built-in ones stay as they are). */
     boolean save() {
         try {

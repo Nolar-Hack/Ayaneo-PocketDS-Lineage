@@ -1,0 +1,59 @@
+Subject: [PATCH] Ayaneo Pocket DS buttons: a short press and a long press of each button can do different things
+
+The BUTTON broadcast of patch 0021 now says whether the press was long (600 ms or more, the
+extra "long"), for every button and not only for the swap button. PocketDS Extra gives each
+button an action for the short press and another for the long press; the former long press of the
+swap button (the controller to the other screen) is its default there.
+
+diff --git a/services/core/java/com/android/server/policy/PhoneWindowManager.java b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+--- a/services/core/java/com/android/server/policy/PhoneWindowManager.java
++++ b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+@@ -4829,32 +4829,11 @@
+             return false;
+         }
+         if (event.getAction() != KeyEvent.ACTION_UP || event.isCanceled()) return true;
+-        final String action;
+-        // A long press of the swap button gives the controller to the other screen.
+-        final boolean held = code == POCKETDS_KEY_SWAP
+-                && event.getEventTime() - event.getDownTime() >= POCKETDS_LONG_PRESS_MS;
+-        switch (code) {
+-            case POCKETDS_KEY_SWAP:
+-                action = held ? "org.lineageos.pocketds.parts.TOGGLE_FOCUS" : null;
+-                break;
+-            case POCKETDS_KEY_OVERLAY:
+-                action = "org.lineageos.pocketds.parts.TOGGLE_OVERLAY";
+-                break;
+-            case POCKETDS_KEY_HOME:
+-                action = "org.lineageos.pocketds.parts.SHOW_SECOND_HOME";
+-                break;
+-            case POCKETDS_KEY_PROFILE:
+-                action = "org.lineageos.pocketds.parts.NEXT_PROFILE";
+-                break;
+-            case KeyEvent.KEYCODE_BUTTON_MODE:
+-                action = "org.lineageos.pocketds.parts.TOGGLE_PERF_OVERLAY";
+-                break;
+-            default:
+-                action = null;
+-        }
+-        // The long press of the swap button keeps its own broadcast. Every other press tells
+-        // PocketDS Extra which button it was: the user chooses there what each button does (the
+-        // defaults are the former actions), so the system has no list of actions to keep up.
++        // A press of 600 ms or more is a long press: each button can do one thing for a short
++        // press and another for a long one.
++        final boolean held = event.getEventTime() - event.getDownTime() >= POCKETDS_LONG_PRESS_MS;
++        // Every press tells PocketDS Extra which button it was and whether it was long: the user
++        // chooses there what each button does, so the system has no list of actions to keep up.
+         final String button;
+         switch (code) {
+             case POCKETDS_KEY_SWAP: button = "swap"; break;
+@@ -4864,8 +4843,8 @@
+             default: button = "fps"; break;
+         }
+         mHandler.post(() -> {
+-            final Intent intent = held && action != null ? new Intent(action)
+-                    : new Intent("org.lineageos.pocketds.parts.BUTTON").putExtra("button", button);
++            final Intent intent = new Intent("org.lineageos.pocketds.parts.BUTTON")
++                    .putExtra("button", button).putExtra("long", held);
+             mContext.sendBroadcastAsUser(intent.setPackage(POCKETDS_PACKAGE), UserHandle.CURRENT);
+         });
+         return true;

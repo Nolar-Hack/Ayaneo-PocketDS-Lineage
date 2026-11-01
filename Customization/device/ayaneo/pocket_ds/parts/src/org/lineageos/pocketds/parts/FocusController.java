@@ -35,7 +35,8 @@ final class FocusController implements ForegroundWatcher.Listener {
 
     /** The display the controller should go to in automatic mode, as the setting wants it. */
     static String autoValue(Context context) {
-        final int overlay = OverlayWindow.openDisplay();
+        final int overlay = OverlayWindow.takesController(context) ? OverlayWindow.openDisplay()
+                : -1;
         if (overlay >= 0) return Integer.toString(overlay);
         final ForegroundWatcher watcher = ForegroundWatcher.get();
         final ActivityManager.RunningTaskInfo app = watcher == null ? null : watcher.current();

@@ -242,33 +242,13 @@ public class ControllerMapActivity extends Activity {
         }
         final String button = ButtonActions.buttonOf(region.name);
         if (button != null) {
-            // An extra button of the console: the user picks what it does.
-            mSelected = 0;
+            // An extra button of the console: the user picks what it does, for a short press and
+            // for a long one (600 ms).
             mView.setSelected(-1);
-            box.addView(text(region.name + " does: " + actionName(ButtonActions.get(this, button)),
-                    18, mUi.text, true));
-            box.addView(text("Pick what this button does:", 14, mUi.textDim, false));
-            LinearLayout actions = null;
-            for (int i = 0; i < ButtonActions.IDS.length; i++) {
-                if (i % 2 == 0) {
-                    actions = new LinearLayout(this);
-                    final LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(
-                            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                            android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-                    al.topMargin = mUi.dp(10);
-                    box.addView(actions, al);
-                }
-                final String id = ButtonActions.IDS[i];
-                final TextView pill = mUi.pill(ButtonActions.NAMES[i], Ui.sAccent,
-                        id.equals(ButtonActions.get(this, button)), v -> {
-                            ButtonActions.set(this, button, id);
-                            detail(region);
-                        });
-                final LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(0,
-                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-                pp.rightMargin = mUi.dp(8);
-                actions.addView(pill, pp);
-            }
+            mSelected = 0;
+            box.addView(text(region.name, 18, mUi.text, true));
+            actionPills(box, region, button, false);
+            actionPills(box, region, button, true);
             return;
         }
         if (region.fixed()) {
@@ -350,6 +330,43 @@ public class ControllerMapActivity extends Activity {
             pp.rightMargin = mUi.dp(8);
             rates.addView(pill, pp);
         }
+    }
+
+    /** The actions of an extra button of the console, for its short or its long press. */
+    private void actionPills(LinearLayout box, ConsoleMapView.Region region, String button,
+            boolean longPress) {
+        box.addView(text((longPress ? "Long press: " : "Short press: ") + actionName(
+                ButtonActions.get(this, button, longPress)), 16, mUi.text, true),
+                spaced(longPress ? 18 : 12));
+        LinearLayout actions = null;
+        for (int i = 0; i < ButtonActions.IDS.length; i++) {
+            if (i % 2 == 0) {
+                actions = new LinearLayout(this);
+                final LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+                al.topMargin = mUi.dp(10);
+                box.addView(actions, al);
+            }
+            final String id = ButtonActions.IDS[i];
+            final TextView pill = mUi.pill(ButtonActions.NAMES[i], Ui.sAccent,
+                    id.equals(ButtonActions.get(this, button, longPress)), v -> {
+                        ButtonActions.set(this, button, longPress, id);
+                        detail(region);
+                    });
+            final LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(0,
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            pp.rightMargin = mUi.dp(8);
+            actions.addView(pill, pp);
+        }
+    }
+
+    private LinearLayout.LayoutParams spaced(int topDp) {
+        final LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.topMargin = mUi.dp(topDp);
+        return params;
     }
 
     private static String actionName(String id) {

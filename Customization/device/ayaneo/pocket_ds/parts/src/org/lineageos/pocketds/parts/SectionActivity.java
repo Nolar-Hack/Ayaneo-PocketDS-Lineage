@@ -227,6 +227,9 @@ public class SectionActivity extends Activity {
                     prefs.edit().putString(PartsPrefs.FOCUS_LOCK, lock).apply();
                     Screens.applyFocusLock(this, true);
                 });
+        ui.switchRow(layout, "🕹️", Ui.ORANGE, "Keep the controller on the game",
+                "While the overlay is open you go on playing: it is used by touch and the "
+                + "controller stays with the game", PartsPrefs.OVERLAY_GAME_FOCUS, true);
         ui.switchRow(layout, "👆", Ui.TEAL, "Swipe back on the second screen",
                 "Swipe from its left or right edge towards the inside to go back: the system "
                 + "gesture only works on the main screen", PartsPrefs.SECOND_GESTURES, true);
@@ -431,6 +434,14 @@ public class SectionActivity extends Activity {
         ui.note(page, chargeState != null ? chargeState
                 : "Charging resumes 3 points under the limit. Plug the console in above the "
                 + "limit and this line tells whether the charger obeyed.");
+        ui.switchRow(charging, "🔌", Ui.BLUE, "Never feed an empty USB port",
+                "Plugged to a computer that is off, the console could give its battery to the "
+                + "cable. If it feeds the port and no USB device is on it, it goes back to "
+                + "receiving power; always so when it shuts down",
+                PartsPrefs.USB_POWER_GUARD, true);
+        final String guardLast = PartsPrefs.get(this).getString(PartsPrefs.USB_POWER_GUARD_LAST,
+                null);
+        ui.note(page, guardLast == null ? "Not needed so far." : "Last time: " + guardLast);
 
         ui.section(page, "Bluetooth");
         final LinearLayout bluetooth = ui.card(page);
@@ -868,9 +879,10 @@ public class SectionActivity extends Activity {
                             }).show());
         }
         ui.note(page, "When you leave the app, the profile and the controller setup you had "
-                + "come back. Controller profiles are made in Controller. The GPU floor (set "
-                + "per profile in the overlay, lowest = none) is only raised for the apps that have "
-                + "it switched on.");
+                + "come back. Controller profiles are made in Controller. The GPU floor starts at "
+                + "85 % of the maximum of the selected performance profile, goes down one step at "
+                + "a time when the GPU is little used (a menu, a pause) and back up when it is "
+                + "busy; only for the apps that have it switched on.");
     }
 
     private String gameText(android.content.SharedPreferences prefs, String key, String pkg) {

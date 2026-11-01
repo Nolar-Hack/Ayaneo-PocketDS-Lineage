@@ -52,6 +52,8 @@ final class PartsPrefs {
 
     // Screens: which screen keeps the controller focus (auto / top / bottom).
     static final String FOCUS_LOCK = "focus_lock";
+    // The overlay is only touched: the controller stays with the game while it is open.
+    static final String OVERLAY_GAME_FOCUS = "overlay_game_focus";
     // Launcher of the bottom screen: icons per row, rows per page.
     static final String LAUNCHER_COLUMNS = "launcher_columns";
     static final String LAUNCHER_ROWS = "launcher_rows";
@@ -60,6 +62,9 @@ final class PartsPrefs {
     // Swipe from the left / right edge of the second screen = Back (the system gestures only work
     // on the default display).
     static final String SECOND_GESTURES = "second_screen_gestures";
+    // The USB port goes back to the power sink role when it feeds a cable with no device on it.
+    static final String USB_POWER_GUARD = "usb_power_guard";
+    static final String USB_POWER_GUARD_LAST = "usb_power_guard_last";
 
     static final String MAIN_SCREEN_ID = "local:4630946412288502659";
     static final String SECOND_SCREEN_ID = "local:4630946708815090308";

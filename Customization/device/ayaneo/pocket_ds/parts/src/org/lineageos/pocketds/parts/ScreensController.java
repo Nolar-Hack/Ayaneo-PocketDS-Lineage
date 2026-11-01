@@ -62,7 +62,8 @@ class ScreensController {
         mContext.registerReceiver(new android.content.BroadcastReceiver() {
             @Override
             public void onReceive(Context context, android.content.Intent intent) {
-                ButtonActions.run(mContext, intent.getStringExtra("button"));
+                ButtonActions.run(mContext, intent.getStringExtra("button"),
+                        intent.getBooleanExtra("long", false));
             }
         }, new android.content.IntentFilter(ButtonActions.ACTION), Context.RECEIVER_NOT_EXPORTED);
         // Long press of the swap button: the controller goes to the other screen.
