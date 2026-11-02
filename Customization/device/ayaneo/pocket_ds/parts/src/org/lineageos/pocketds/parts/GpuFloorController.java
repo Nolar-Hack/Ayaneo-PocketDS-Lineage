@@ -12,34 +12,42 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 
 /**
- * The GPU floor, for the apps that ask for it (Profiles: "GPU floor"). The GPU governor of the
- * console climbs too late for a game with bursts of load (a custom driver such as Turnip never
- * makes it climb), so for an app that asked the minimum frequency of the GPU starts at the floor
- * that comes with the selected performance profile (85 % of its maximum) as soon as the app is in
- * front. Then the use of the GPU, measured at the frequency that is held, keeps it fair: with a
- * light use the minimum goes down one step at a time (an idle menu, a pause), with a heavy use it
- * goes back up. The load is not trusted at the lowest frequency, where the governor hides it, only
- * at a floor that is held; the minimum never goes above the maximum of the profile, and it is
- * lifted when the app leaves the front. Any other app, and any profile without a floor, runs as it
- * always did.
+ * The GPU floor, for the apps that ask for it (Profiles: "GPU floor"), driven by the frame rate.
+ * The GPU governor of the console climbs too late for a game with bursts of load (a custom driver
+ * such as Turnip never makes it climb), and the load of the GPU does not tell it (a game at 44
+ * fps showed 35 % while a floor of 680 MHz made it run at 58). So the minimum frequency of the GPU
+ * starts, for an app that asked, at the floor that comes with the selected performance profile
+ * (85 % of its maximum) as soon as the app is in front. Then the frame rate decides: when it falls
+ * under what the app reaches (the 75th percentile of the last 30 seconds) the minimum climbs one
+ * step, two when it falls far; when it holds for a while the minimum goes down one step, never
+ * under a step that was too low a minute ago. It never goes above the maximum of the profile.
+ * When the app draws nothing for a while (a pause, a frozen game) the minimum is lifted, and it
+ * starts again from the floor of the profile when the app draws again; it is lifted too when the
+ * app leaves the front. Any other app, and any profile without a floor, runs as it always did.
  */
 final class GpuFloorController {
     static final String KEY_PREFIX = "gpu_floor_";
     private static final String TAG = "PocketDSGpuFloor";
     private static final String GPU = "/sys/class/kgsl/kgsl-3d0/";
-    private static final long POLL_MS = 500;
-    /** Polls averaged for the use of the GPU (3 seconds). */
-    private static final int WINDOW = 6;
-    /** Under this use (percent of the time busy) the minimum may go down. */
-    private static final int LOW_USE = 20;
-    /** From this use on the minimum goes up. */
-    private static final int HIGH_USE = 50;
-    /** From this use on it goes up by two steps. */
-    private static final int VERY_HIGH_USE = 80;
-    /** Polls of light use in a row before one step down (10 seconds). */
-    private static final int DOWN_POLLS = 20;
-    /** Polls of heavy use in a row before one step up (1 second). */
+    private static final long POLL_MS = 1000;
+    /** Seconds over which the frame rate the app reaches is taken. */
+    private static final int PEAK_SECONDS = 30;
+    /** Samples with a frame rate needed before the minimum is moved. */
+    private static final int MIN_SAMPLES = 10;
+    /** Below this share of the frame rate the app reaches, the minimum climbs. */
+    private static final float LOW = 0.93f;
+    /** Below this one it climbs by two steps. */
+    private static final float VERY_LOW = 0.80f;
+    /** From this share on, the frame rate is as good as the one the app reaches. */
+    private static final float GOOD = 0.97f;
+    /** Polls in a row under LOW before the minimum climbs. */
     private static final int UP_POLLS = 2;
+    /** Seconds of good frame rate before the minimum goes down one step. */
+    private static final int DOWN_AFTER = 15;
+    /** Seconds during which a step that was too low is not tried again. */
+    private static final int AVOID_SECONDS = 60;
+    /** Polls without a frame before the minimum is lifted. */
+    private static final int NO_FRAMES_POLLS = 15;
 
     private final PerformanceProfiles mProfiles;
     private final android.content.Context mContext;
@@ -51,10 +59,16 @@ final class GpuFloorController {
     private String mPackage;
     private long[] mSteps = new long[0];
     private int mLevel = -1;            // index in mSteps of the minimum set, -1 = none yet
-    private int mLight;
-    private int mHeavy;
-    private final int[] mUse = new int[WINDOW];
-    private int mUseCount;
+    private int mAvoidLevel = -1;       // a step under it was too low
+    private long mAvoidUntil;
+    private int mGood;
+    private int mBelow;
+    private int mNoFrames;
+    private boolean mDropped;
+    private final int[] mHistory = new int[PEAK_SECONDS];
+    private int mHistoryIndex;
+    private int mLastFps;
+    private int mLastPeak;
 
     GpuFloorController(android.content.Context context, PerformanceProfiles profiles) {
         mContext = context;
@@ -103,7 +117,7 @@ final class GpuFloorController {
         final boolean wanted = pkg != null && !profile.gpuFixed && steps.length > 1
                 && isOn(PartsPrefs.get(mContext), pkg);
         if (!wanted) {
-            if (mLevel >= 0) set(lowestHz(), -1);
+            if (mLevel >= 0) set(lowestHz());
             reset();
             return;
         }
@@ -112,50 +126,88 @@ final class GpuFloorController {
             mPackage = pkg;
             mSteps = steps;
         }
+        final long now = System.nanoTime() / 1_000_000_000L;
         if (mLevel < 0) {
             // the app just came to the front: the floor of the profile is there from the first
-            // frame
+            // frame, the frame rate takes over from there
             mLevel = indexOf(floorOf(profile));
-            set(mSteps[mLevel], -1);
+            set(mSteps[mLevel]);
             return;
         }
         // Put back if the real minimum is not the one set (the system changed it).
-        if (minFreqHz() != mSteps[mLevel]) set(mSteps[mLevel], -1);
+        if (minFreqHz() != mSteps[mLevel]) set(mSteps[mLevel]);
 
-        final int busy = busyPercent();
-        if (busy < 0) return;
-        mUse[mUseCount++ % WINDOW] = busy;
-        if (mUseCount < WINDOW) return;
-        int sum = 0;
-        for (int sample : mUse) sum += sample;
-        final int use = sum / WINDOW;
-        final int top = mSteps.length - 1;
-        if (use >= HIGH_USE) {
-            mLight = 0;
-            if (++mHeavy >= UP_POLLS && mLevel < top) {
-                mHeavy = 0;
-                mLevel = Math.min(top, mLevel + (use >= VERY_HIGH_USE ? 2 : 1));
-                set(mSteps[mLevel], use);
+        final PerfOverlayController perf = PerfOverlayController.sInstance;
+        final int fps = perf == null ? -1 : perf.foregroundFps();
+        if (fps < 0) return;
+        mHistory[mHistoryIndex++ % PEAK_SECONDS] = fps;
+        if (fps == 0) {
+            // not drawing (paused, a frozen game, a black screen): after a while no floor is
+            // held, and it starts again from the profile floor when the app draws again
+            if (++mNoFrames == NO_FRAMES_POLLS && mLevel > 0) {
+                mLevel = 0;
+                set(mSteps[0]);
+                mDropped = true;
             }
-        } else if (use < LOW_USE) {
-            mHeavy = 0;
-            if (++mLight >= DOWN_POLLS && mLevel > 0) {
-                mLight = 0;
-                mLevel--;
-                set(mSteps[mLevel], use);
+            return;
+        }
+        mNoFrames = 0;
+        if (mDropped) {
+            mDropped = false;
+            reset();
+            return;
+        }
+        // The frame rate the app reaches: the 75th percentile of the seconds that had frames, so
+        // that one spike (a loading screen, a menu at 120) does not become the target.
+        final int[] drawn = new int[PEAK_SECONDS];
+        int count = 0;
+        for (int sample : mHistory) if (sample > 0) drawn[count++] = sample;
+        if (count < MIN_SAMPLES) return;
+        java.util.Arrays.sort(drawn, 0, count);
+        final int peak = drawn[Math.min(count - 1, count * 3 / 4)];
+        mLastFps = fps;
+        mLastPeak = peak;
+        final int top = mSteps.length - 1;
+        if (fps < peak * LOW) {
+            mGood = 0;
+            if (++mBelow >= UP_POLLS) {
+                mBelow = 0;
+                // the step we came from was too low: not under it again for a while
+                mAvoidLevel = mLevel;
+                mAvoidUntil = now + AVOID_SECONDS;
+                final int next = Math.min(top, mLevel + (fps < peak * VERY_LOW ? 2 : 1));
+                if (next != mLevel) {
+                    mLevel = next;
+                    set(mSteps[mLevel]);
+                }
+            }
+        } else if (fps >= peak * GOOD) {
+            mBelow = 0;
+            if (++mGood >= DOWN_AFTER) {
+                mGood = 0;
+                final int lower = mLevel - 1;
+                if (lower >= 0 && !(now < mAvoidUntil && lower < mAvoidLevel)) {
+                    mLevel = lower;
+                    set(mSteps[mLevel]);
+                }
             }
         } else {
-            mLight = 0;
-            mHeavy = 0;
+            // between the two: neither climbs nor counts towards going down
+            mBelow = 0;
         }
     }
 
     private void reset() {
         mPackage = null;
         mLevel = -1;
-        mLight = 0;
-        mHeavy = 0;
-        mUseCount = 0;
+        mAvoidLevel = -1;
+        mAvoidUntil = 0;
+        mGood = 0;
+        mBelow = 0;
+        mNoFrames = 0;
+        mDropped = false;
+        mHistoryIndex = 0;
+        java.util.Arrays.fill(mHistory, 0);
         mSteps = new long[0];
     }
 
@@ -179,7 +231,7 @@ final class GpuFloorController {
 
     /**
      * The floor a profile starts from: the highest GPU step under 85 % of its maximum (680 MHz
-     * for the 794 MHz of Gaming, the value that kept a game at 60 fps in the tests).
+     * for the 794 MHz of Gaming, the value that kept a game at 58 fps in the tests).
      */
     private long floorOf(PerformanceProfiles.Profile profile) {
         final long limit = profile.gpuMaxHz * 85 / 100;
@@ -188,9 +240,9 @@ final class GpuFloorController {
         return best;
     }
 
-    private static void set(long hz, int use) {
-        android.util.Log.i(TAG, "GPU minimum " + hz / 1_000_000 + " MHz"
-                + (use < 0 ? "" : ", use " + use + " %"));
+    private void set(long hz) {
+        android.util.Log.i(TAG, "GPU minimum " + hz / 1_000_000 + " MHz, fps " + mLastFps
+                + " of " + mLastPeak);
         RootShell.run("echo " + hz + " > " + GPU + "devfreq/min_freq");
     }
 
@@ -200,23 +252,9 @@ final class GpuFloorController {
     }
 
     private static long minFreqHz() {
-        return readLong(GPU + "devfreq/min_freq");
-    }
-
-    private static int busyPercent() {
-        try {
-            final String text = new String(java.nio.file.Files.readAllBytes(
-                    new File(GPU + "gpu_busy_percentage").toPath()), StandardCharsets.UTF_8);
-            return Integer.parseInt(text.replaceAll("[^0-9]", ""));
-        } catch (java.io.IOException | RuntimeException e) {
-            return -1;
-        }
-    }
-
-    private static long readLong(String path) {
         try {
             return Long.parseLong(new String(java.nio.file.Files.readAllBytes(
-                    new File(path).toPath()), StandardCharsets.UTF_8).trim());
+                    new File(GPU + "devfreq/min_freq").toPath()), StandardCharsets.UTF_8).trim());
         } catch (java.io.IOException | RuntimeException e) {
             return -1;
         }

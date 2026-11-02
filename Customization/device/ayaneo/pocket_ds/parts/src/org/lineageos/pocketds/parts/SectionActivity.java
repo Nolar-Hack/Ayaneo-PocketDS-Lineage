@@ -36,6 +36,8 @@ public class SectionActivity extends Activity {
     static final String SOUND = "sound";
     static final String LAUNCHER = "launcher";
     static final String GAMES = "games";
+    static final String SETUP = "setup";
+    static final String EXTRA_SETUP = "setup_id";
     static final String CONTROLLER = "controller";
     static final String UPDATES = "updates";
     static final String MOTION = "motion";
@@ -55,7 +57,8 @@ public class SectionActivity extends Activity {
         super.onResume();
         checkAccent();
         // Back from the remapping of a profile: the list shows what was saved.
-        if (mResumedBefore && (CONTROLLER.equals(section()) || GAMES.equals(section()))) {
+        if (mResumedBefore && (CONTROLLER.equals(section()) || GAMES.equals(section())
+                || SETUP.equals(section()))) {
             recreate();
         }
         mResumedBefore = true;
@@ -94,6 +97,9 @@ public class SectionActivity extends Activity {
             case GAMES:
                 games(ui, page);
                 break;
+            case SETUP:
+                setupPage(ui, page);
+                break;
             case CONTROLLER:
                 controllerPage(ui, page);
                 break;
@@ -121,16 +127,16 @@ public class SectionActivity extends Activity {
     private void pixels(Ui ui, LinearLayout page) {
         setTitle("Smart Pixels");
         ui.hero(page, "✨", Ui.PINK, "Smart Pixels",
-                "Switches off some pixels in a moving pattern: saves power and slows burn-in");
+                "Turns off some pixels to save power and limit burn-in");
         final LinearLayout master = ui.card(page);
         final Ui.Row main = ui.switchRow(master, "✨", Ui.PINK, "Smart Pixels",
-                "Best on the OLED main screen", PartsPrefs.SMART_PIXELS, false);
+                "Best for the OLED screen", PartsPrefs.SMART_PIXELS, false);
         final LinearLayout options = ui.card(page);
-        ui.choiceRow(options, "🔳", Ui.PURPLE, "Share of pixels switched off",
+        ui.choiceRow(options, "🔳", Ui.PURPLE, "Pixels turned off",
                 PartsPrefs.SMART_PIXELS_PERCENT,
                 new String[] {"3 %", "6 %", "12 %", "25 %", "50 %"},
                 new String[] {"3", "6", "12", "25", "50"}, "12");
-        ui.choiceRow(options, "🔄", Ui.BLUE, "Burn-in protection",
+        ui.choiceRow(options, "🔄", Ui.BLUE, "Move the pattern every",
                 PartsPrefs.SMART_PIXELS_SHIFT_MIN,
                 new String[] {"Fixed", "1 min", "5 min", "10 min", "30 min"},
                 new String[] {"0", "1", "5", "10", "30"}, "5");
@@ -141,21 +147,20 @@ public class SectionActivity extends Activity {
                     PartsPrefs.SCREEN_BOTH}, PartsPrefs.SCREEN_MAIN);
         final LinearLayout saver = ui.card(page);
         ui.switchRow(saver, "🔋", Ui.GREEN, "Enable with Battery Saver",
-                "Turns Smart Pixels on while Battery Saver is on",
+                "Follows Battery Saver",
                 PartsPrefs.SMART_PIXELS_ON_SAVER, false);
         ui.dependOn(main, options);
 
         ui.section(page, "Screen off");
         final LinearLayout animation = ui.card(page);
         ui.switchRow(animation, "📺", Ui.ORANGE, "Old TV (CRT) animation",
-                "The picture collapses to a line, then to a dot, when the screen turns off, and "
-                + "opens up again when it turns on", PartsPrefs.CRT_SCREEN_OFF, true);
+                "The screen shrinks to a line when it turns off", PartsPrefs.CRT_SCREEN_OFF, true);
     }
 
     private void screens(Ui ui, LinearLayout page) {
         setTitle("Screens");
         ui.hero(page, "🖥️", Ui.TEAL, "Screens",
-                "Which screen shows what, brightness, touch and when the screens turn off");
+                "Brightness, touch, layout and screen off");
 
         ui.section(page, "Brightness");
         // One tile for each screen, side by side.
@@ -197,7 +202,7 @@ public class SectionActivity extends Activity {
                 value -> Settings.System.putInt(resolver, Settings.System.SCREEN_OFF_TIMEOUT,
                         Integer.parseInt(value)));
         ui.valueSwitchRow(off, "📺", Ui.ORANGE, "Old TV (CRT) animation",
-                "The picture collapses to a line, then to a dot, when the screen turns off",
+                "The screen shrinks to a line when it turns off",
                 () -> prefs.getBoolean(PartsPrefs.CRT_SCREEN_OFF, true),
                 on -> prefs.edit().putBoolean(PartsPrefs.CRT_SCREEN_OFF, on).apply());
 
@@ -207,13 +212,12 @@ public class SectionActivity extends Activity {
                 PartsPrefs.TOUCH_THRESHOLD,
                 new String[] {"Very high", "High", "Normal", "Low", "Very low"},
                 new String[] {"60", "90", "120", "150", "180"}, "120");
-        ui.note(page, "A low sensitivity avoids touches made by a finger that only hovers the "
-                + "screen; a high one reacts to the lightest touch. Normal is the default.");
+        ui.note(page, "Lower it if the screen reacts to a finger that only hovers.");
 
         ui.section(page, "Layout");
         final LinearLayout layout = ui.card(page);
         ui.valueSwitchRow(layout, "⇄", Ui.BLUE, "Swap the screens",
-                "The bottom screen becomes the main screen and the other way round; both stay on",
+                "The two screens trade places",
                 () -> Screens.isSwapped(this), on -> Screens.setSwapped(this, on));
         ui.valueChoiceRow(layout, "🖥️", Ui.PURPLE, "Screen mode",
                 new String[] {"Both", "Top, cursor", "Top, touchpad", "Bottom only"},
@@ -228,11 +232,9 @@ public class SectionActivity extends Activity {
                     Screens.applyFocusLock(this, true);
                 });
         ui.switchRow(layout, "🕹️", Ui.ORANGE, "Keep the controller on the game",
-                "While the overlay is open you go on playing: it is used by touch and the "
-                + "controller stays with the game", PartsPrefs.OVERLAY_GAME_FOCUS, true);
+                "The overlay is used by touch; the controller stays on the game", PartsPrefs.OVERLAY_GAME_FOCUS, true);
         ui.switchRow(layout, "👆", Ui.TEAL, "Swipe back on the second screen",
-                "Swipe from its left or right edge towards the inside to go back: the system "
-                + "gesture only works on the main screen", PartsPrefs.SECOND_GESTURES, true);
+                "Swipe in from the left or right edge to go back", PartsPrefs.SECOND_GESTURES, true);
     }
 
     private static final int REQUEST_WALLPAPER_TOP = 2;
@@ -241,7 +243,7 @@ public class SectionActivity extends Activity {
     private void launcher(Ui ui, LinearLayout page) {
         setTitle("Applications");
         ui.hero(page, "📱", Ui.PINK, "Applications",
-                "The list of the bottom screen and the wallpapers of the two screens");
+                "App list and wallpapers");
 
         ui.section(page, "Grid");
         final LinearLayout grid = ui.card(page);
@@ -249,22 +251,21 @@ public class SectionActivity extends Activity {
                 new String[] {"4", "5", "6", "7"}, new String[] {"4", "5", "6", "7"}, "5");
         ui.choiceRow(grid, "🔳", Ui.PURPLE, "Rows per page", PartsPrefs.LAUNCHER_ROWS,
                 new String[] {"2", "3", "4", "5"}, new String[] {"2", "3", "4", "5"}, "3");
-        ui.note(page, "More icons than fit on a page go to the next page: swipe sideways. Press "
-                + "and hold an app to put it in a folder.");
+        ui.note(page, "Swipe sideways for more pages. Hold an app to make a folder.");
 
         ui.section(page, "Wallpapers");
         final LinearLayout wallpapers = ui.card(page);
         final Ui.Row top = ui.actionRow(wallpapers, "🖥️", Ui.TEAL, "Top screen",
-                Wallpapers.has(this, Screens.TOP) ? "Your picture" : "The wallpaper of the system",
+                Wallpapers.has(this, Screens.TOP) ? "Your picture" : "System wallpaper",
                 () -> pickWallpaper(REQUEST_WALLPAPER_TOP));
         final Ui.Row bottom = ui.actionRow(wallpapers, "🖥️", Ui.ORANGE, "Bottom screen",
-                Wallpapers.has(this, Screens.BOTTOM) ? "Your picture" : "The wallpaper of the system",
+                Wallpapers.has(this, Screens.BOTTOM) ? "Your picture" : "System wallpaper",
                 () -> pickWallpaper(REQUEST_WALLPAPER_BOTTOM));
         ui.actionRow(wallpapers, "⏱️", Ui.RED, "Back to the default wallpapers", null, () -> {
             Wallpapers.clear(this, Screens.TOP);
             Wallpapers.clear(this, Screens.BOTTOM);
-            ui.setSummary(top, "The wallpaper of the system");
-            ui.setSummary(bottom, "The wallpaper of the system");
+            ui.setSummary(top, "System wallpaper");
+            ui.setSummary(bottom, "System wallpaper");
             Toast.makeText(this, "Wallpapers reset", Toast.LENGTH_SHORT).show();
         });
 
@@ -285,7 +286,7 @@ public class SectionActivity extends Activity {
     private void sound(Ui ui, LinearLayout page) {
         setTitle("Sound");
         ui.hero(page, "🔊", Ui.BLUE, "Sound",
-                "Volumes, where the sound goes, and the sound of each app");
+                "Volumes, output and sound of each app");
         final android.media.AudioManager audio = getSystemService(android.media.AudioManager.class);
 
         ui.section(page, "Volumes");
@@ -313,8 +314,7 @@ public class SectionActivity extends Activity {
                     PartsPrefs.get(this).edit().putString("media_output", value).apply();
                     setMediaOutput(audio, value);
                 });
-        ui.note(page, "Automatic follows what is plugged in. A choice stays until you change it "
-                + "or restart the console, and is ignored while that output is not connected.");
+        ui.note(page, "Automatic follows what is plugged in. Your choice lasts until a restart.");
 
         ui.section(page, "Effects");
         final LinearLayout effects = ui.card(page);
@@ -327,7 +327,7 @@ public class SectionActivity extends Activity {
                     if (on) audio.loadSoundEffects(); else audio.unloadSoundEffects();
                 });
         ui.valueSwitchRow(effects, "📳", Ui.ORANGE, "Vibration feedback",
-                "Touch and keyboard feedback in the controller",
+                "Vibrate on touch and keys",
                 () -> Settings.System.getInt(resolver, Settings.System.HAPTIC_FEEDBACK_ENABLED, 1)
                         == 1, on -> Settings.System.putInt(resolver,
                         Settings.System.HAPTIC_FEEDBACK_ENABLED, on ? 1 : 0));
@@ -362,8 +362,7 @@ public class SectionActivity extends Activity {
                         else levels.edit().putInt(name, on ? 0 : 100).apply();
                     });
         }
-        ui.note(page, "The volume of each app that is playing, between 0 and 100 %, is in the "
-                + "overlay (Sound).");
+        ui.note(page, "The volume of each app is in the overlay (Sound).");
     }
 
     /** Sends the media to an output, or back to the automatic choice. */
@@ -405,26 +404,26 @@ public class SectionActivity extends Activity {
     private void battery(Ui ui, LinearLayout page) {
         setTitle("Battery & radios");
         ui.hero(page, "🔋", Ui.GREEN, "Battery & radios",
-                "Radios that keep the processor awake are switched off when you do not use them");
+                "Turns Wi-Fi and Bluetooth off when you are not using the console");
 
         ui.section(page, "After the screen goes off");
         final LinearLayout screen = ui.card(page);
-        ui.choiceRow(screen, "⏱️", Ui.BLUE, "Switch off the radios",
+        ui.choiceRow(screen, "⏱️", Ui.BLUE, "Turn off after",
                 PartsPrefs.SUSPEND_DELAY_MIN, DELAYS, DELAY_VALUES, "0");
         ui.switchRow(screen, "📶", Ui.TEAL, "Wi-Fi",
-                "Off after the delay, back on when the screen turns on",
+                "Back on when the screen turns on",
                 PartsPrefs.SUSPEND_WIFI, false);
         ui.switchRow(screen, "🟦", Ui.BLUE, "Bluetooth",
-                "Off after the delay, back on when the screen turns on",
+                "Back on when the screen turns on",
                 PartsPrefs.SUSPEND_BLUETOOTH, false);
         ui.switchRow(screen, "🔌", Ui.ORANGE, "Only on battery",
-                "Do nothing while the console is charging",
+                "Not while charging",
                 PartsPrefs.SUSPEND_ONLY_ON_BATTERY, true);
 
         ui.section(page, "Charging");
         final LinearLayout charging = ui.card(page);
         ui.switchRow(charging, "🔋", Ui.GREEN, "Limit the charge",
-                "Stops charging at the level below, to keep the battery healthy longer",
+                "Stops at the level below to spare the battery",
                 ChargeLimitController.PREF_ON, false);
         ui.choiceRow(charging, "🎯", Ui.TEAL, "Charge up to", ChargeLimitController.PREF_LEVEL,
                 new String[] {"60 %", "70 %", "75 %", "80 %", "85 %", "90 %"},
@@ -432,39 +431,38 @@ public class SectionActivity extends Activity {
         final String chargeState = PartsPrefs.get(this).getString(ChargeLimitController.PREF_STATE,
                 null);
         ui.note(page, chargeState != null ? chargeState
-                : "Charging resumes 3 points under the limit. Plug the console in above the "
-                + "limit and this line tells whether the charger obeyed.");
-        ui.switchRow(charging, "🔌", Ui.BLUE, "Never feed an empty USB port",
-                "Plugged to a computer that is off, the console could give its battery to the "
-                + "cable. If it feeds the port and no USB device is on it, it goes back to "
-                + "receiving power; always so when it shuts down",
+                : "Charging restarts 3 points under the limit.");
+        ui.switchRow(charging, "🔌", Ui.BLUE, "Never power the USB port",
+                "Stops the console from draining its battery into a cable that is plugged "
+                + "to nothing, for example a computer that is off",
                 PartsPrefs.USB_POWER_GUARD, true);
         final String guardLast = PartsPrefs.get(this).getString(PartsPrefs.USB_POWER_GUARD_LAST,
                 null);
-        ui.note(page, guardLast == null ? "Not needed so far." : "Last time: " + guardLast);
+        ui.note(page, guardLast == null ? "Never needed so far." : "Last time: " + guardLast);
 
         ui.section(page, "Bluetooth");
         final LinearLayout bluetooth = ui.card(page);
         ui.choiceRow(bluetooth, "🎧", Ui.PURPLE, "Off when no device is connected",
                 PartsPrefs.BT_IDLE_OFF_MIN, DELAYS, DELAY_VALUES, "0");
-        ui.note(page, "Google's Nearby services scan over Bluetooth all the time, which stops "
-                + "the console from sleeping. This option switches Bluetooth (and its background "
-                + "scanning) off when nothing is connected.");
+        ui.note(page, "Google's Nearby keeps scanning over Bluetooth, which stops the console "
+                + "from sleeping. This turns Bluetooth off when nothing is connected.");
     }
 
     private void powerOff(Ui ui, LinearLayout page) {
         setTitle("Power off");
         ui.hero(page, "⏻", Ui.RED, "Power off",
-                "Shuts the console down by itself, to keep the battery for later");
+                "Turns the console off by itself to save the battery");
         final LinearLayout card = ui.card(page);
         ui.choiceRow(card, "📕", Ui.ORANGE, "After the lid is closed",
                 PartsPrefs.POWEROFF_LID_MIN, DELAYS, DELAY_VALUES, "0");
         ui.choiceRow(card, "🌙", Ui.PURPLE, "After the screen is off",
                 PartsPrefs.POWEROFF_SCREEN_MIN, DELAYS, DELAY_VALUES, "0");
         ui.switchRow(card, "🔌", Ui.GREEN, "Only on battery",
-                "Do not power off while the console is charging",
+                "For the screen-off delay: not while charging",
                 PartsPrefs.POWEROFF_ONLY_ON_BATTERY, true);
-        ui.note(page, "Opening the lid or turning the screen on cancels the countdown.");
+        ui.note(page, "Lid closed: powers off even when plugged in, unless data is moving over USB "
+                + "(checked again every 5 min). Lid open and charging: never powers off. "
+                + "Opening the lid or waking the screen cancels the countdown.");
     }
 
     private final Handler mUpdateHandler = new Handler(Looper.getMainLooper());
@@ -486,22 +484,20 @@ public class SectionActivity extends Activity {
     private void motion(Ui ui, LinearLayout page) {
         setTitle("Motion sensors");
         ui.hero(page, "🧭", Ui.TEAL, "Motion sensors",
-                "Calibration of the gyroscope, for games that aim with it. The direction is in "
-                        + "Controller.");
+                "Gyroscope calibration for games that aim with it. The direction is in Controller.");
         mMotion = new MotionCalibration(this);
         final Handler main = new Handler(Looper.getMainLooper());
 
         // A change is read by the sensors at boot only.
         final LinearLayout pending = ui.card(page);
         ui.actionRow(pending, "🔄", Ui.ORANGE, "Restart to apply",
-                "The sensors read their settings when the console starts",
+                "Applied when the console starts",
                 () -> getSystemService(android.os.PowerManager.class).reboot(null));
         pending.setVisibility(android.view.View.GONE);
 
         ui.section(page, "Calibration");
-        ui.note(page, "Put the console flat on a steady surface and do not touch it while it"
-                + " measures (10 s). A gyroscope that drifts when the console is still reads a"
-                + " small constant: this removes it.");
+        ui.note(page, "Lay the console flat and do not touch it for 10 s. This removes the drift "
+                + "of the gyroscope when the console is still.");
         final LinearLayout cal = ui.card(page);
         final Runnable[] render = new Runnable[1];
         final MotionCalibration.Result[] last = {null};
@@ -711,19 +707,18 @@ public class SectionActivity extends Activity {
         final LinearLayout source = ui.card(body);
         ui.actionRow(source, "🔗", Ui.PURPLE, Updates.customUrl(this) ? "Custom source"
                 : "Default source", Updates.url(this), this::editUpdateSource);
-        ui.note(body, "For your own build: give the GitHub repository (owner/repo) that publishes "
-                + "your releases, or the https address of its update.json.");
-        ui.note(body, "The console never restarts on its own: a notification and the button "
-                + "above wait for you. An update that cannot be installed leaves the current "
-                + "version untouched.");
+        ui.note(body, "For your own build: a GitHub repository (owner/repo) or the https address "
+                + "of its update.json.");
+        ui.note(body, "The console never restarts by itself. A failed update leaves the current "
+                + "version as it is.");
     }
 
     /** The three steps of an update, each done, running or waiting (step = the one running). */
     private void updateSteps(Ui ui, LinearLayout body, int step, int percent) {
         final LinearLayout card = ui.card(body);
         final String[] names = {"Download", "Install in the other system slot", "Restart"};
-        final String[] hints = {"The package is fetched from the release",
-                "Written beside the running system, which stays untouched",
+        final String[] hints = {"Fetches the package",
+                "Written next to the running system",
                 "The new version starts after your restart"};
         for (int i = 1; i <= 3; i++) {
             final boolean done = i < step;
@@ -776,8 +771,8 @@ public class SectionActivity extends Activity {
         ui.switchRow(perf, "🎮", Ui.PURPLE, "Performance overlay",
                 "Frames per second, GPU, CPU, memory, temperature and power on the main screen",
                 PartsPrefs.PERF_OVERLAY, false);
-        ui.note(page, "It can also be switched on and off with a button of the console. "
-                + "The frame rate is the one of the app in the foreground.");
+        ui.note(page, "A console button can also switch it. The frame rate is the one of the app "
+                + "in front.");
 
         ui.section(page, "Backup");
         final LinearLayout backup = ui.card(page);
@@ -790,8 +785,7 @@ public class SectionActivity extends Activity {
                             .addCategory(Intent.CATEGORY_OPENABLE).setType("application/json");
                     startActivityForResult(pick, REQUEST_RESTORE);
                 });
-        ui.note(page, "A backup survives a wipe if you keep the file: copy it out of the console "
-                + "first, then restore it after the reinstall.");
+        ui.note(page, "Copy the file out of the console before a wipe, then restore it afterwards.");
 
         ui.section(page, "Emulators");
         final LinearLayout emus = ui.card(page);
@@ -801,8 +795,7 @@ public class SectionActivity extends Activity {
         ui.actionRow(emus, "♻️", Ui.ORANGE, "Restore the emulators",
                 "Put back the newest archive (the emulators are stopped first)",
                 this::restoreEmulators);
-        ui.note(page, "The games themselves are not copied, only what the emulators keep "
-                + "for themselves.");
+        ui.note(page, "Games are not copied, only the data of the emulators.");
     }
 
     private void backupEmulators() {
@@ -831,101 +824,209 @@ public class SectionActivity extends Activity {
         }).start();
     }
 
-    /** A performance profile for each app: it is switched on when the app comes to the front. */
+    /** The apps that can be launched, as {label, package}, by label. */
+    private java.util.List<String[]> launchableApps(android.content.pm.PackageManager pm) {
+        final java.util.TreeMap<String, String[]> found = new java.util.TreeMap<>();
+        for (android.content.pm.ResolveInfo info : pm.queryIntentActivities(
+                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)) {
+            final String pkg = info.activityInfo.packageName;
+            if (pkg.equals(getPackageName())) continue;
+            final String label = String.valueOf(info.loadLabel(pm));
+            found.put(label.toLowerCase(java.util.Locale.ROOT) + "\u0000" + pkg,
+                    new String[] {label, pkg});
+        }
+        return new java.util.ArrayList<>(found.values());
+    }
+
+    private static String appLabel(android.content.pm.PackageManager pm, String pkg) {
+        try {
+            return String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)));
+        } catch (android.content.pm.PackageManager.NameNotFoundException e) {
+            return pkg;
+        }
+    }
+
+    /** Game profiles: the settings are made once in a profile, then each app picks a profile. */
     private void games(Ui ui, LinearLayout page) {
         setTitle("Profiles");
         ui.hero(page, "🎮", Ui.PURPLE, "Profiles",
-                "For each app: a performance profile and a controller profile, switched on when it opens");
-        final android.content.SharedPreferences prefs = PartsPrefs.get(this);
+                "Set a game profile once, then pick it for each app");
+        final SharedPreferences prefs = PartsPrefs.get(this);
+        GameSetups.migrate(prefs);
         final android.content.pm.PackageManager pm = getPackageManager();
-        final java.util.TreeMap<String, String> found = new java.util.TreeMap<>();
-        for (android.content.pm.ResolveInfo info : pm.queryIntentActivities(
-                new android.content.Intent(android.content.Intent.ACTION_MAIN)
-                        .addCategory(android.content.Intent.CATEGORY_LAUNCHER), 0)) {
-            final String pkg = info.activityInfo.packageName;
-            if (pkg.equals(getPackageName())) continue;
-            found.put(String.valueOf(info.loadLabel(pm)).toLowerCase(java.util.Locale.ROOT)
-                    + "\u0000" + pkg, pkg);
+
+        ui.section(page, "Game profiles");
+        final LinearLayout setupsCard = ui.card(page);
+        for (GameSetups.Setup s : GameSetups.all(prefs)) {
+            final int uses = GameSetups.appsOf(prefs, s.id).size();
+            ui.actionRow(setupsCard, "🎮", Ui.PURPLE, s.name, GameSetups.summary(prefs, s) + " · "
+                    + uses + (uses == 1 ? " app" : " apps"), () -> openSetup(s.id));
         }
-        final LinearLayout card = ui.card(page);
-        final String[] choices = new String[PerformanceProfiles.NAMES.length + 1];
-        choices[0] = "None (leave the profile alone)";
-        System.arraycopy(PerformanceProfiles.NAMES, 0, choices, 1,
-                PerformanceProfiles.NAMES.length);
-        for (String pkg : found.values()) {
-            String label = pkg;
-            try {
-                label = String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)));
-            } catch (android.content.pm.PackageManager.NameNotFoundException e) {
-                // the package name is shown
-            }
-            final String title = label;
-            final String key = GameProfiles.KEY_PREFIX + pkg;
-            final Ui.Row[] row = new Ui.Row[1];
-            final Runnable refresh = () -> ui.setSummary(row[0], gameText(prefs, key, pkg));
-            row[0] = ui.actionRow(card, "🎮", Ui.PURPLE, label, gameText(prefs, key, pkg), () ->
-                    new android.app.AlertDialog.Builder(this).setTitle(title)
-                            .setItems(new String[] {"Performance profile",
-                                "Controller profile",
-                                "GPU floor: " + (GpuFloorController.isOn(prefs, pkg) ? "on (tap to switch off)"
-                                        : "off (tap to switch on)")}, (d, which) -> {
-                                if (which == 0) performanceDialog(prefs, key, title, choices, refresh);
-                                else if (which == 1) controllerPickDialog(prefs, pkg, title, refresh);
-                                else {
-                                    prefs.edit().putBoolean(GpuFloorController.KEY_PREFIX + pkg,
-                                            !GpuFloorController.isOn(prefs, pkg)).apply();
-                                    refresh.run();
-                                }
-                            }).show());
+        ui.actionRow(setupsCard, "➕", Ui.GREEN, "New game profile",
+                "Name it, then choose its settings", () -> nameDialog("New game profile", "",
+                        name -> openSetup(GameSetups.create(prefs, name).id)));
+
+        ui.section(page, "Applications");
+        final LinearLayout apps = ui.card(page);
+        for (String[] app : launchableApps(pm)) {
+            final GameSetups.Setup s = GameSetups.find(prefs,
+                    GameSetups.assignedId(prefs, app[1]));
+            if (s == null) continue;
+            ui.actionRow(apps, "📱", Ui.BLUE, app[0], s.name, () ->
+                    pickSetupDialog(prefs, app[1], app[0], this::recreate));
         }
-        ui.note(page, "When you leave the app, the profile and the controller setup you had "
-                + "come back. Controller profiles are made in Controller. The GPU floor starts at "
-                + "85 % of the maximum of the selected performance profile, goes down one step at "
-                + "a time when the GPU is little used (a menu, a pause) and back up when it is "
-                + "busy; only for the apps that have it switched on.");
+        ui.actionRow(apps, "➕", Ui.GREEN, "Add an application",
+                "Pick an app, then its game profile", () -> addAppDialog(prefs, pm));
+
+        ui.section(page, "Driver Turnip");
+        final LinearLayout drivers = ui.card(page);
+        ui.switchRow(drivers, "🧩", Ui.PURPLE, "TurnipZ for Eden and Citron",
+                "Adds the TurnipZ driver (third party) to their driver list. Nothing changes "
+                + "until you pick it there", PartsPrefs.GPU_DRIVER_PACK, true);
+        ui.note(page, "Leaving an app brings back your previous profile and controller setup. "
+                + "The minimum GPU speed starts at 85 % of the profile's maximum, then follows "
+                + "the frame rate.");
     }
 
-    private String gameText(android.content.SharedPreferences prefs, String key, String pkg) {
-        final ControllerProfiles.Named pad = ControllerProfiles.find(prefs,
-                ControllerProfiles.assignedId(prefs, pkg));
-        return profileText(prefs, key) + (pad == null ? "" : " · Controller: " + pad.name)
-                + (GpuFloorController.isOn(prefs, pkg) ? " · GPU floor" : "");
+    private void openSetup(String id) {
+        startActivity(new Intent(this, SectionActivity.class)
+                .putExtra(EXTRA_SECTION, SETUP).putExtra(EXTRA_SETUP, id));
     }
 
-    private void performanceDialog(android.content.SharedPreferences prefs, String key,
-            String title, String[] choices, Runnable changed) {
-        new android.app.AlertDialog.Builder(this).setTitle(title + " · performance")
-                .setItems(choices, (d, which) -> {
-                    if (which == 0) prefs.edit().remove(key).apply();
-                    else prefs.edit().putString(key, Integer.toString(which - 1)).apply();
-                    changed.run();
+    /** Which game profile an app uses: one of the profiles, none, or a new one. */
+    private void pickSetupDialog(SharedPreferences prefs, String pkg, String title,
+            Runnable changed) {
+        final java.util.List<GameSetups.Setup> list = GameSetups.all(prefs);
+        final String[] items = new String[list.size() + 2];
+        for (int i = 0; i < list.size(); i++) items[i] = list.get(i).name;
+        items[list.size()] = "None (change nothing)";
+        items[list.size() + 1] = "New game profile…";
+        new android.app.AlertDialog.Builder(this).setTitle(title + " · game profile")
+                .setItems(items, (d, which) -> {
+                    if (which < list.size()) {
+                        GameSetups.assign(prefs, pkg, list.get(which).id);
+                        changed.run();
+                    } else if (which == list.size()) {
+                        GameSetups.assign(prefs, pkg, null);
+                        changed.run();
+                    } else {
+                        nameDialog("New game profile", "", name -> {
+                            final GameSetups.Setup s = GameSetups.create(prefs, name);
+                            GameSetups.assign(prefs, pkg, s.id);
+                            openSetup(s.id);
+                        });
+                    }
                 }).show();
     }
 
-    /** Which controller profile an app uses: one of the named ones, none, or a new one. */
-    private void controllerPickDialog(android.content.SharedPreferences prefs, String pkg,
-            String title, Runnable changed) {
+    /** Lists the apps that have no profile yet. */
+    private void addAppDialog(SharedPreferences prefs, android.content.pm.PackageManager pm) {
+        final java.util.List<String[]> free = new java.util.ArrayList<>();
+        for (String[] app : launchableApps(pm)) {
+            if (GameSetups.find(prefs, GameSetups.assignedId(prefs, app[1])) == null) free.add(app);
+        }
+        final String[] items = new String[free.size()];
+        for (int i = 0; i < items.length; i++) items[i] = free.get(i)[0];
+        new android.app.AlertDialog.Builder(this).setTitle("Add an application")
+                .setItems(items, (d, which) -> pickSetupDialog(prefs, free.get(which)[1],
+                        free.get(which)[0], this::recreate)).show();
+    }
+
+    /** The page of one game profile: performance, controller and minimum GPU speed. */
+    private void setupPage(Ui ui, LinearLayout page) {
+        final SharedPreferences prefs = PartsPrefs.get(this);
+        final GameSetups.Setup s = GameSetups.find(prefs, getIntent().getStringExtra(EXTRA_SETUP));
+        if (s == null) {
+            finish();
+            return;
+        }
+        setTitle(s.name);
+        ui.hero(page, "🎮", Ui.PURPLE, s.name,
+                "Applied when an app that uses it opens, and undone when you leave it");
+
+        ui.section(page, "Performance");
+        final LinearLayout perf = ui.card(page);
+        final String[] entries = new String[PerformanceProfiles.NAMES.length + 1];
+        final String[] values = new String[entries.length];
+        entries[0] = "No change";
+        values[0] = "-1";
+        for (int i = 0; i < PerformanceProfiles.NAMES.length; i++) {
+            entries[i + 1] = PerformanceProfiles.NAMES[i];
+            values[i + 1] = Integer.toString(i);
+        }
+        ui.valueChoiceRow(perf, "⚡", Ui.ORANGE, "Performance profile", entries, values,
+                () -> Integer.toString(s.perf), value -> {
+                    s.perf = Integer.parseInt(value);
+                    GameSetups.update(prefs, s);
+                });
+
+        ui.section(page, "Controller");
+        final LinearLayout pad = ui.card(page);
+        final ControllerProfiles.Named named = ControllerProfiles.find(prefs, s.pad);
+        ui.actionRow(pad, "🕹️", Ui.BLUE, "Controller profile",
+                named == null ? "General controller (Every app)" : named.name,
+                () -> padPickDialog(prefs, s));
+
+        ui.section(page, "GPU");
+        final LinearLayout gpu = ui.card(page);
+        ui.valueSwitchRow(gpu, "⚡", Ui.TEAL, "Minimum GPU speed",
+                "Keeps the GPU from dropping too low, and follows the frame rate",
+                () -> s.gpu, on -> {
+                    s.gpu = on;
+                    GameSetups.update(prefs, s);
+                });
+
+        ui.section(page, "Used by");
+        final android.content.pm.PackageManager pm = getPackageManager();
+        final java.util.List<String> users = GameSetups.appsOf(prefs, s.id);
+        final LinearLayout used = ui.card(page);
+        if (users.isEmpty()) {
+            ui.row(used, "📱", Ui.GREY, "No app yet",
+                    "Pick this profile for an app in Profiles");
+        }
+        for (String pkg : users) ui.row(used, "📱", Ui.BLUE, appLabel(pm, pkg), null);
+
+        ui.section(page, "Profile");
+        final LinearLayout actions = ui.card(page);
+        ui.actionRow(actions, "✏️", Ui.BLUE, "Rename", s.name, () ->
+                nameDialog("Rename the profile", s.name, name -> {
+                    if (!name.trim().isEmpty()) {
+                        s.name = name.trim();
+                        GameSetups.update(prefs, s);
+                        recreate();
+                    }
+                }));
+        ui.actionRow(actions, "🗑️", Ui.RED, "Delete this profile",
+                "The apps that use it go back to no profile", () ->
+                new android.app.AlertDialog.Builder(this).setTitle("Delete " + s.name + "?")
+                        .setPositiveButton("Delete", (d, w) -> {
+                            GameSetups.delete(prefs, s.id);
+                            finish();
+                        }).setNegativeButton("Cancel", null).show());
+    }
+
+    /** Which controller profile a game profile uses: general, one of the named ones, or new. */
+    private void padPickDialog(SharedPreferences prefs, GameSetups.Setup s) {
         final java.util.List<ControllerProfiles.Named> list = ControllerProfiles.all(prefs);
         final String[] items = new String[list.size() + 2];
-        items[0] = "None (same as everywhere)";
+        items[0] = "General controller (Every app)";
         for (int i = 0; i < list.size(); i++) items[i + 1] = list.get(i).name;
         items[items.length - 1] = "New profile…";
-        new android.app.AlertDialog.Builder(this).setTitle(title + " · controller")
+        new android.app.AlertDialog.Builder(this).setTitle(s.name + " · controller")
                 .setItems(items, (d, which) -> {
-                    if (which == 0) {
-                        ControllerProfiles.assign(prefs, pkg, null);
-                        changed.run();
-                    } else if (which == items.length - 1) {
+                    if (which == items.length - 1) {
                         nameDialog("New controller profile", "", name -> {
                             final ControllerProfiles.Named n = ControllerProfiles.create(prefs,
                                     name);
-                            ControllerProfiles.assign(prefs, pkg, n.id);
-                            changed.run();
+                            s.pad = n.id;
+                            GameSetups.update(prefs, s);
+                            recreate();
                             openRemap(n);
                         });
                     } else {
-                        ControllerProfiles.assign(prefs, pkg, list.get(which - 1).id);
-                        changed.run();
+                        s.pad = which == 0 ? null : list.get(which - 1).id;
+                        GameSetups.update(prefs, s);
+                        recreate();
                     }
                 }).show();
     }
@@ -953,8 +1054,7 @@ public class SectionActivity extends Activity {
         final android.content.SharedPreferences prefs = PartsPrefs.get(this);
         final LinearLayout general = ui.card(page);
         ui.actionRow(general, "🌐", Ui.BLUE, "Every app",
-                "What is used when an app has no profile: tap a button on a drawing of the "
-                        + "console", () -> startActivity(new Intent(this,
+                "Used when an app has no profile: tap a button on the console drawing", () -> startActivity(new Intent(this,
                         ControllerMapActivity.class)));
         final LinearLayout tools = ui.card(page);
         ui.actionRow(tools, "🎯", Ui.ORANGE, "Test the buttons",
@@ -988,12 +1088,6 @@ public class SectionActivity extends Activity {
         startActivity(new Intent(this, ControllerMapActivity.class)
                 .putExtra(ControllerMapActivity.EXTRA_PROFILE, n.id)
                 .putExtra(ControllerMapActivity.EXTRA_LABEL, n.name));
-    }
-
-    private static String profileText(android.content.SharedPreferences prefs, String key) {
-        final int profile = PartsPrefs.getInt(prefs, key, -1);
-        return profile < 0 || profile >= PerformanceProfiles.NAMES.length ? "No profile"
-                : PerformanceProfiles.NAMES[profile];
     }
 
     private static final int REQUEST_RESTORE = 1;

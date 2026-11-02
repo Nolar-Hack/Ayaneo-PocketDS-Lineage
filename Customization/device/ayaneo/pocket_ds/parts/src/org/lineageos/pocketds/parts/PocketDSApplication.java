@@ -32,6 +32,7 @@ public class PocketDSApplication extends Application {
         start("BluetoothIdle", () -> new BluetoothIdleController(this).start());
         start("PowerOff", () -> new PowerOffController(this).start());
         start("UsbPowerGuard", () -> new UsbPowerGuard(this).start());
+        start("GpuDriverPack", () -> new GpuDriverPack(this).start());
         start("Rules", () -> new RulesController(this).start());
         start("Foreground", () -> new ForegroundWatcher(this).start());
         start("Focus", () -> new FocusController(this).start());

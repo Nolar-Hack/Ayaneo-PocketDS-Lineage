@@ -319,10 +319,24 @@ class PerfOverlayController implements SharedPreferences.OnSharedPreferenceChang
             mLayersPackage = pkg;
             mLayersTime = now;
         }
+        int low = 0;
         for (String layer : mLayers) {
-            best = Math.max(best, fpsOfLayer(layer));
+            final int[] layerLow = new int[1];
+            final int fps = fpsOfLayer(layer, layerLow);
+            if (fps > best) {
+                best = fps;
+                low = layerLow[0];
+            }
         }
+        mLastLow = low;
         return best;
+    }
+
+    private volatile int mLastLow;
+
+    /** The "1 % low" of the last reading of the frame rate (frames per second, 0 when unknown). */
+    int lastLowFps() {
+        return mLastLow;
     }
 
     /** Names of the layers of the package (window, SurfaceView, BLAST buffer queues). */
@@ -344,7 +358,12 @@ class PerfOverlayController implements SharedPreferences.OnSharedPreferenceChang
         return layers;
     }
 
-    private static int fpsOfLayer(String layer) {
+    /**
+     * Frames per second of a layer over the last second; {@code low[0]} gets the 1 % low: the
+     * frame rate of the slowest 1 % of the frames of the history SurfaceFlinger keeps (about
+     * 2 seconds at 60 fps).
+     */
+    private static int fpsOfLayer(String layer, int[] low) {
         final List<String> lines = run("dumpsys", "SurfaceFlinger", "--latency", layer);
         if (lines.size() < 2) return 0;
         final List<Long> presented = new ArrayList<>();
@@ -368,6 +387,14 @@ class PerfOverlayController implements SharedPreferences.OnSharedPreferenceChang
         int count = 0;
         for (long time : presented) {
             if (newest - time < WINDOW_NS) count++;
+        }
+        java.util.Collections.sort(presented);
+        final List<Long> gaps = new ArrayList<>();
+        for (int i = 1; i < presented.size(); i++) gaps.add(presented.get(i) - presented.get(i - 1));
+        if (gaps.size() >= 20) {
+            java.util.Collections.sort(gaps, java.util.Collections.reverseOrder());
+            final long slowest = gaps.get(Math.min(gaps.size() - 1, gaps.size() / 100));
+            if (slowest > 0) low[0] = (int) Math.round(1e9 / slowest);
         }
         return count;
     }

@@ -33,6 +33,9 @@ class PowerOffController {
     private static final String LID_SENSOR_TYPE = "qti.sensor.hall_effect";
     private static final int LID_SENSOR_FALLBACK_TYPE = 33171002;
     private static final float LID_NEAR_THRESHOLD = 5.0f;
+    private static final long RETRY_MS = 5 * 60_000L;
+    private static final long SAMPLE_MS = 10_000L;
+    private static final long BUSY_INTERRUPTS = 200;
 
     private final Context mContext;
     private final SharedPreferences mPrefs;
@@ -106,7 +109,21 @@ class PowerOffController {
     private final AlarmManager.OnAlarmListener mLidAlarm = new AlarmManager.OnAlarmListener() {
         @Override
         public void onAlarm() {
-            if (mLidClosed) powerOff("lid closed");
+            if (!mLidClosed) return;
+            // Lid closed: power off even when plugged, unless data is going through the USB port.
+            // A closed lid with nothing happening on the port only drains the battery.
+            new Thread(() -> {
+                if (usbTransferring()) {
+                    Log.i(TAG, "Power off (lid closed) postponed: USB transfer in progress");
+                    mHandler.post(() -> mAlarms.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                            SystemClock.elapsedRealtime() + RETRY_MS, "pocketds-poweroff-lid",
+                            mLidAlarm, mHandler));
+                } else {
+                    mHandler.post(() -> {
+                        if (mLidClosed) powerOff("lid closed", true);
+                    });
+                }
+            }, "pocketds-usb-check").start();
         }
     };
 
@@ -119,8 +136,60 @@ class PowerOffController {
         }
     };
 
+    /**
+     * True when the USB device side is enumerated by a host and moving data: the controller state
+     * is "configured" and its interrupt counter moves during a short sample. A host that is off or
+     * asleep (suspended / not attached) or an idle link counts as no transfer.
+     */
+    private boolean usbTransferring() {
+        try {
+            if (!"configured".equals(readFirstUdcState())) return false;
+            final long before = usbInterrupts();
+            Thread.sleep(SAMPLE_MS);
+            final long delta = usbInterrupts() - before;
+            Log.i(TAG, "USB interrupts in " + SAMPLE_MS + " ms: " + delta);
+            return delta > BUSY_INTERRUPTS;
+        } catch (Exception e) {
+            Log.w(TAG, "USB activity check failed, assuming no transfer", e);
+            return false;
+        }
+    }
+
+    private static String readFirstUdcState() throws java.io.IOException {
+        final java.io.File[] udcs = new java.io.File("/sys/class/udc").listFiles();
+        if (udcs == null) return "";
+        for (java.io.File udc : udcs) {
+            final String state = new String(java.nio.file.Files.readAllBytes(
+                    new java.io.File(udc, "state").toPath())).trim();
+            if (!state.isEmpty()) return state;
+        }
+        return "";
+    }
+
+    private static long usbInterrupts() throws java.io.IOException {
+        long total = 0;
+        for (String line : java.nio.file.Files.readAllLines(
+                new java.io.File("/proc/interrupts").toPath())) {
+            if (!line.contains("dwc3")) continue;
+            for (String field : line.trim().split("\\s+")) {
+                if (field.endsWith(":")) continue;
+                try {
+                    total += Long.parseLong(field);
+                } catch (NumberFormatException e) {
+                    break;
+                }
+            }
+        }
+        return total;
+    }
+
     private void powerOff(String why) {
-        if (mPrefs.getBoolean(PartsPrefs.POWEROFF_ONLY_ON_BATTERY, true)
+        powerOff(why, false);
+    }
+
+    private void powerOff(String why, boolean evenIfCharging) {
+        if (!evenIfCharging
+                && mPrefs.getBoolean(PartsPrefs.POWEROFF_ONLY_ON_BATTERY, true)
                 && mContext.getSystemService(BatteryManager.class).isCharging()) {
             Log.i(TAG, "Power off (" + why + ") skipped: charging");
             return;

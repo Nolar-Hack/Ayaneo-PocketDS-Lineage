@@ -85,6 +85,9 @@ final class OverlayWindow extends android.content.ContextWrapper {
     private Spark mSpark;
     private TextView mFpsValue;
     private TextView mFpsLine;
+    private TextView mFpsAvg;
+    private TextView mFpsLow;
+    private LinearLayout mFpsBar;
     private TextView mCpuValue;
     private TextView mCpuFreq;
     private TextView mCpuTemp;
@@ -399,7 +402,33 @@ final class OverlayWindow extends android.content.ContextWrapper {
             tabParams.rightMargin = u(6);
             tabs.addView(tab, tabParams);
         }
-        root.addView(tabs);
+        // The time, top right: the hour (12 or 24 h as the system is set) over the date.
+        final LinearLayout clock = new LinearLayout(this);
+        clock.setOrientation(LinearLayout.VERTICAL);
+        clock.setGravity(Gravity.END);
+        final android.widget.TextClock time = new android.widget.TextClock(this);
+        time.setTextColor(TEXT);
+        time.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, u(24));
+        time.setTypeface(android.graphics.Typeface.create("sans-serif",
+                android.graphics.Typeface.BOLD));
+        time.setSingleLine(true);
+        clock.addView(time);
+        final android.widget.TextClock date = new android.widget.TextClock(this);
+        date.setFormat12Hour("EEE d MMM");
+        date.setFormat24Hour("EEE d MMM");
+        date.setTextColor(DIM);
+        date.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, u(13));
+        date.setSingleLine(true);
+        clock.addView(date);
+        final LinearLayout top = new LinearLayout(this);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        top.addView(tabs, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT,
+                1f));
+        top.addView(clock, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
+        root.addView(top, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT));
         final View rule = new View(this);
         rule.setBackgroundColor(0xFF262B34);
         final LinearLayout.LayoutParams ruleParams = new LinearLayout.LayoutParams(
@@ -502,10 +531,20 @@ final class OverlayWindow extends android.content.ContextWrapper {
         mFpsValue = text("--", 38, TEXT, true);
         mFpsLine = text("fps · main screen app", 14, DIM, false);
         mSpark = new Spark(this);
-        final LinearLayout fpsCard = statCard("Frame rate", null, mFpsValue, null, null, null);
+        mFpsAvg = text("--", 14, TEXT, true);
+        mFpsLow = text("--", 14, TEXT, true);
+        mFpsBar = bar(0xFF34C3A5);
+        final LinearLayout fpsCard = statCard("Frame rate", "main screen app", mFpsValue, null,
+                null, null);
         fpsCard.addView(mSpark, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
-                u(48)));
-        fpsCard.addView(mFpsLine, fill(8));
+                u(36)));
+        final LinearLayout.LayoutParams fpsBarParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, u(6));
+        fpsBarParams.topMargin = u(8);
+        fpsBarParams.bottomMargin = u(8);
+        fpsCard.addView(mFpsBar, fpsBarParams);
+        fpsCard.addView(line("Average · 5 min", mFpsAvg));
+        fpsCard.addView(line("1 % low", mFpsLow), fill(5));
         fpsCard.setOnClickListener(v -> showGraph(MetricsRecorder.FPS));
         stats.addView(fpsCard, weight(1f, 12));
         mCpuValue = text("--", 38, TEXT, true);
@@ -532,7 +571,7 @@ final class OverlayWindow extends android.content.ContextWrapper {
         memCard.setOnClickListener(v -> showGraph(MetricsRecorder.RAM));
         stats.addView(memCard, weight(1f, 0));
         final LinearLayout.LayoutParams statsParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, u(236));
+                ViewGroup.LayoutParams.MATCH_PARENT, u(262));
         statsParams.topMargin = u(12);
         page.addView(stats, statsParams);
 
@@ -570,13 +609,27 @@ final class OverlayWindow extends android.content.ContextWrapper {
     // ---- curves (a tap on a card of the performance page)
 
     private static final String[] METRIC_NAMES = {"CPU usage", "GPU usage", "Memory in use",
-        "Battery power", "Frame rate", "CPU temperature", "GPU temperature"};
-    private static final String[] METRIC_UNITS = {" %", " %", " %", " W", " fps", " °C", " °C"};
+        "Battery power", "Frame rate", "CPU temperature", "GPU temperature", "CPU frequency",
+        "GPU frequency", "Battery level", "Battery temperature", "Frame rate, 1 % low",
+        "Memory used"};
+    private static final String[] METRIC_UNITS = {" %", " %", " %", " W", " fps", " °C", " °C",
+        " MHz", " MHz", " %", " °C", " fps", " GB"};
     private static final int[] METRIC_COLORS = {0xFF5B9DFF, 0xFFA78BFA, 0xFF34C3A5, 0xFF43C27A,
-        0xFF34C3A5, 0xFFF2A33A, 0xFFF06B5E};
-    private static final float[] METRIC_MAX = {100, 100, 100, 0, 0, 0, 0};
+        0xFF34C3A5, 0xFFF2A33A, 0xFFF06B5E, 0xFF5B9DFF, 0xFFA78BFA, 0xFF43C27A, 0xFFF2A33A,
+        0xFFF06B5E, 0xFF34C3A5};
+    private static final float[] METRIC_MAX = {100, 100, 100, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0};
+    /** The curves that go together: a tap on a chip shows the next one of the same card. */
+    private static final int[][] METRIC_GROUPS = {
+        {MetricsRecorder.CPU, MetricsRecorder.CPU_FREQ, MetricsRecorder.CPU_TEMP},
+        {MetricsRecorder.GPU, MetricsRecorder.GPU_FREQ, MetricsRecorder.GPU_TEMP},
+        {MetricsRecorder.FPS, MetricsRecorder.FPS_LOW},
+        {MetricsRecorder.BATTERY, MetricsRecorder.BATT_LEVEL, MetricsRecorder.BATT_TEMP},
+        {MetricsRecorder.RAM, MetricsRecorder.RAM_GB}};
+    private static final String[][] METRIC_GROUP_LABELS = {
+        {"Usage", "Frequency", "Temperature"}, {"Usage", "Frequency", "Temperature"},
+        {"Average", "1 % low"}, {"Power", "Level", "Temperature"}, {"Percent", "Used"}};
     private int mGraphMetric = -1;
-    private int mGraphSeconds = 300;
+    private int mGraphSeconds = 300;   // 5 min, 1 h or 1 d
     private LineChart mChart;
     private TextView mGraphNow;
     private TextView mGraphMin;
@@ -625,8 +678,11 @@ final class OverlayWindow extends android.content.ContextWrapper {
 
         final LinearLayout controls = new LinearLayout(this);
         controls.setGravity(Gravity.CENTER_VERTICAL);
-        final int[] seconds = {300, 1800, 3600};
-        final String[] labels = {"5 min", "30 min", "1 h"};
+        final int[] seconds = {300, 3600, 86400};
+        final String[] labels = {"5 min", "1 h", "1 d"};
+        if (mGraphSeconds != 300 && mGraphSeconds != 3600 && mGraphSeconds != 86400) {
+            mGraphSeconds = 300;
+        }
         final List<TextView> chips = new ArrayList<>();
         for (int i = 0; i < 3; i++) {
             final int value = seconds[i];
@@ -634,26 +690,25 @@ final class OverlayWindow extends android.content.ContextWrapper {
             chip.setOnClickListener(v -> {
                 mGraphSeconds = value;
                 for (int k = 0; k < chips.size(); k++) setChip(chips.get(k), seconds[k] == value);
-                refreshGraph();
+                showGraph(mGraphMetric);
             });
             chips.add(chip);
             controls.addView(chip);
             space(controls, 8);
         }
-        // CPU and GPU: usage or temperature
-        if (metric == MetricsRecorder.CPU || metric == MetricsRecorder.GPU
-                || metric == MetricsRecorder.CPU_TEMP || metric == MetricsRecorder.GPU_TEMP) {
-            final boolean cpu = metric == MetricsRecorder.CPU || metric == MetricsRecorder.CPU_TEMP;
-            final int usage = cpu ? MetricsRecorder.CPU : MetricsRecorder.GPU;
-            final int temp = cpu ? MetricsRecorder.CPU_TEMP : MetricsRecorder.GPU_TEMP;
+        // the other curves of the same card (usage, frequency, temperature ...)
+        for (int g = 0; g < METRIC_GROUPS.length; g++) {
+            boolean inGroup = false;
+            for (int m : METRIC_GROUPS[g]) inGroup |= m == metric;
+            if (!inGroup) continue;
             space(controls, 24);
-            final TextView usageChip = chip("Usage", metric == usage);
-            usageChip.setOnClickListener(v -> showGraph(usage));
-            controls.addView(usageChip);
-            space(controls, 8);
-            final TextView tempChip = chip("Temperature", metric == temp);
-            tempChip.setOnClickListener(v -> showGraph(temp));
-            controls.addView(tempChip);
+            for (int k = 0; k < METRIC_GROUPS[g].length; k++) {
+                final int target = METRIC_GROUPS[g][k];
+                final TextView chip = chip(METRIC_GROUP_LABELS[g][k], target == metric);
+                chip.setOnClickListener(v -> showGraph(target));
+                controls.addView(chip);
+                space(controls, 8);
+            }
         }
         page.addView(controls, fill(14));
 
@@ -662,8 +717,8 @@ final class OverlayWindow extends android.content.ContextWrapper {
         chartCard.addView(mChart, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, u(330)));
         final LinearLayout axis = new LinearLayout(this);
-        final String[] ends = {mGraphSeconds >= 3600 ? "1 h ago" : mGraphSeconds >= 1800
-                ? "30 min ago" : "5 min ago", "now"};
+        final String[] ends = {mGraphSeconds >= 86400 ? "1 day ago" : mGraphSeconds >= 3600
+                ? "1 h ago" : "5 min ago", "now"};
         axis.addView(text(ends[0], 13, DIM, false), new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         axis.addView(text(ends[1], 13, DIM, false));
@@ -693,16 +748,30 @@ final class OverlayWindow extends android.content.ContextWrapper {
         final float[] values = recorder.series(mGraphMetric, mGraphSeconds);
         mChart.set(values, METRIC_COLORS[mGraphMetric], METRIC_UNITS[mGraphMetric].trim().isEmpty()
                 ? "" : "", METRIC_MAX[mGraphMetric]);
+        // A frame rate or a temperature of 0 means "nothing to measure" (idle, off): not counted.
+        final boolean skipZero = mGraphMetric == MetricsRecorder.FPS
+                || mGraphMetric == MetricsRecorder.FPS_LOW
+                || mGraphMetric == MetricsRecorder.CPU_TEMP
+                || mGraphMetric == MetricsRecorder.GPU_TEMP
+                || mGraphMetric == MetricsRecorder.BATT_TEMP
+                || mGraphMetric == MetricsRecorder.CPU_FREQ
+                || mGraphMetric == MetricsRecorder.GPU_FREQ;
         float min = Float.MAX_VALUE;
         float max = 0;
         float sum = 0;
+        int counted = 0;
         for (float v : values) {
+            if (skipZero && v <= 0) continue;
             min = Math.min(min, v);
             max = Math.max(max, v);
             sum += v;
+            counted++;
         }
+        if (counted == 0) min = 0;
         final String unit = METRIC_UNITS[mGraphMetric];
-        final boolean decimals = mGraphMetric == MetricsRecorder.BATTERY;
+        final boolean decimals = mGraphMetric == MetricsRecorder.BATTERY
+                || mGraphMetric == MetricsRecorder.RAM_GB
+                || mGraphMetric == MetricsRecorder.BATT_TEMP;
         final String pattern = decimals ? "%.1f%s" : "%.0f%s";
         if (values.length == 0) {
             mGraphNow.setText("--");
@@ -710,7 +779,8 @@ final class OverlayWindow extends android.content.ContextWrapper {
         }
         mGraphNow.setText(String.format(Locale.US, pattern, values[values.length - 1], unit));
         mGraphMin.setText(String.format(Locale.US, pattern, min, unit));
-        mGraphAvg.setText(String.format(Locale.US, pattern, sum / values.length, unit));
+        mGraphAvg.setText(String.format(Locale.US, pattern, counted == 0 ? 0 : sum / counted,
+                unit));
         mGraphMax.setText(String.format(Locale.US, pattern, max, unit));
     }
 
@@ -2330,10 +2400,35 @@ final class OverlayWindow extends android.content.ContextWrapper {
         final double watts = microAmps / 1e6 * microVolts / 1e6;
         final String batteryLine = String.format(Locale.US, "%.0f °C · %.1f W", temp, watts);
         final float gpuTempShown = gpuTemp;
+        // The frame rate of the last 5 minutes (the moments when the app draws), and its 1 % low.
+        final MetricsRecorder recorder = MetricsRecorder.get();
+        float avgSum = 0;
+        int avgCount = 0;
+        float lowSum = 0;
+        int lowCount = 0;
+        if (recorder != null) {
+            for (float v : recorder.series(MetricsRecorder.FPS, 300)) {
+                if (v > 0) {
+                    avgSum += v;
+                    avgCount++;
+                }
+            }
+            for (float v : recorder.series(MetricsRecorder.FPS_LOW, 300)) {
+                if (v > 0) {
+                    lowSum += v;
+                    lowCount++;
+                }
+            }
+        }
+        final float fpsAverage = avgCount == 0 ? 0 : avgSum / avgCount;
+        final float fpsLowAverage = lowCount == 0 ? 0 : lowSum / lowCount;
         mMain.post(() -> {
             if (mFpsValue == null || mPage != 0) return;
             mFpsValue.setText(fps < 0 ? "--" : Integer.toString(fps));
             mFpsLine.setText("fps · main screen app");
+            mFpsAvg.setText(fpsAverage > 0 ? Math.round(fpsAverage) + " fps" : "--");
+            mFpsLow.setText(fpsLowAverage > 0 ? Math.round(fpsLowAverage) + " fps" : "--");
+            setBar(mFpsBar, fpsAverage / (fpsAverage > 60 ? 120f : 60f));
             mCpuValue.setText(cpu + " %");
             mCpuFreq.setText(cpuMhz + " MHz");
             mCpuTemp.setText(Math.round(cpuTemp) + " °C");

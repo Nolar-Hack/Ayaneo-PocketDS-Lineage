@@ -64,6 +64,8 @@ final class PartsPrefs {
     static final String SECOND_GESTURES = "second_screen_gestures";
     // The USB port goes back to the power sink role when it feeds a cable with no device on it.
     static final String USB_POWER_GUARD = "usb_power_guard";
+    // The TurnipZ driver is put in the driver folder of the Switch emulators.
+    static final String GPU_DRIVER_PACK = "gpu_driver_pack";
     static final String USB_POWER_GUARD_LAST = "usb_power_guard_last";
 
     static final String MAIN_SCREEN_ID = "local:4630946412288502659";
