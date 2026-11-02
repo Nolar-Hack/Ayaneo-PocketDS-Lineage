@@ -7,6 +7,8 @@
 
 android_app {
     name: "PocketDSParts",
+    // The performance service of Qualcomm (hints sent as the stock framework did), by HIDL.
+    static_libs: ["vendor.qti.hardware.perf-V2.0-java"],
     srcs: ["src/**/*.java"],
     asset_dirs: ["assets"],
     certificate: "platform",

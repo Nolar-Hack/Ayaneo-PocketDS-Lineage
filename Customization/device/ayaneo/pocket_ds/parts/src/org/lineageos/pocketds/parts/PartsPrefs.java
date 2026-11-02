@@ -66,6 +66,8 @@ final class PartsPrefs {
     static final String USB_POWER_GUARD = "usb_power_guard";
     // The TurnipZ driver is put in the driver folder of the Switch emulators.
     static final String GPU_DRIVER_PACK = "gpu_driver_pack";
+    /** The game mode (frequencies held for a game in front, see PerfHints); on by default. */
+    static final String GAME_MODE = "game_mode";
     static final String USB_POWER_GUARD_LAST = "usb_power_guard_last";
 
     static final String MAIN_SCREEN_ID = "local:4630946412288502659";

@@ -46,6 +46,7 @@ KERNELSU=true
 MAKE_OTA=true
 CHECK=true
 BUMP=true
+OTA_ARGS=()
 FORCE_EXTRACT=false
 # GApps in the image: mindthegapps (default) or none (room kept in product to flash NikGApps...)
 GAPPS=mindthegapps
@@ -81,6 +82,7 @@ Options:
   --mem-max SIZE        kill the build above SIZE (default: $MEM_MAX)
   --no-kernelsu         do not patch KernelSU Next into init_boot (root is on by default)
   --no-ota              do not make the full and incremental update packages (OTA/) at the end
+  --incremental-only    make only the incremental package from the previous build (no complete one, none from the older releases): for tests
   --no-bump             keep the version of device/ayaneo/pocket_ds/VERSION (--all raises it by one:
                         YEAR.MONTH.BUILD, see scripts/release.sh)
   --skip-checks         do not check the prerequisites first (scripts/check-prereqs.sh)
@@ -109,6 +111,7 @@ while [[ $# -gt 0 ]]; do
         --bringup)      BRINGUP=true ;;
         --no-kernelsu)  KERNELSU=false ;;
         --no-ota)       MAKE_OTA=false ;;
+        --incremental-only) OTA_ARGS+=(--incremental-only) ;;
         --no-bump)      BUMP=false ;;
         --skip-checks)  CHECK=false ;;
         --force-extract) FORCE_EXTRACT=true ;;
@@ -296,7 +299,7 @@ phase_build() {
     $KERNELSU && patch_kernelsu
     ok "Images: $SRC_DIR/out/target/product/pocket_ds"
     # Full + incremental update packages in OTA/, then this build becomes the Compare base.
-    $MAKE_OTA && "$SCRIPT_DIR/make-ota.sh"
+    $MAKE_OTA && "$SCRIPT_DIR/make-ota.sh" "${OTA_ARGS[@]}"
     info "Next: scripts/flash.sh --image-dir $SRC_DIR/out/target/product/pocket_ds --stock-backup <backup> --wipe"
 }
 

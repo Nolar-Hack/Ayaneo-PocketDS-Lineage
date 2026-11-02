@@ -123,12 +123,22 @@ class PerfOverlayController implements SharedPreferences.OnSharedPreferenceChang
                         .createWindowContext(type, null);
             }
             mWindowManager = windowContext.getSystemService(WindowManager.class);
+            // A thin line on a barely visible background, so that the game stays in sight; each
+            // value is coloured by its state (green fine, yellow tight, red at the limit).
             final TextView view = new TextView(windowContext);
-            view.setTypeface(Typeface.MONOSPACE);
-            view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            view.setTextColor(Color.RED);
-            view.setBackgroundColor(0x99000000);
-            view.setPadding(16, 8, 16, 8);
+            view.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+            view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            view.setTextColor(Color.WHITE);
+            view.setShadowLayer(2f, 0f, 1f, 0xD9000000);
+            final android.graphics.drawable.GradientDrawable back =
+                    new android.graphics.drawable.GradientDrawable();
+            final float density = windowContext.getResources().getDisplayMetrics().density;
+            back.setColor(0x520A0E14);
+            back.setCornerRadius(7 * density);
+            view.setBackground(back);
+            final int padH = Math.round(8 * density);
+            final int padV = Math.round(4 * density);
+            view.setPadding(padH, padV, padH, padV);
             view.setSingleLine(true);
             view.setText("...");
             final WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
@@ -144,7 +154,10 @@ class PerfOverlayController implements SharedPreferences.OnSharedPreferenceChang
             // Centred at the top of the screen until the user moves it, then where it was left.
             final boolean[] centered = {!mPrefs.contains(PartsPrefs.PERF_OVERLAY_X)};
             if (centered[0]) {
-                lp.gravity = Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+                // In the top left corner until the user moves it.
+                lp.gravity = Gravity.TOP | Gravity.START;
+                lp.x = Math.round(12 * density);
+                lp.y = Math.round(8 * density);
             } else {
                 lp.gravity = Gravity.TOP | Gravity.START;
                 lp.x = mPrefs.getInt(PartsPrefs.PERF_OVERLAY_X, 0);
@@ -225,7 +238,7 @@ class PerfOverlayController implements SharedPreferences.OnSharedPreferenceChang
     private final Runnable mSample = new Runnable() {
         @Override
         public void run() {
-            String text;
+            CharSequence text;
             try {
                 text = sample();
             } catch (RuntimeException e) {
@@ -233,7 +246,7 @@ class PerfOverlayController implements SharedPreferences.OnSharedPreferenceChang
                 Log.w(TAG, "Performance overlay sample failed", e);
                 text = "?";
             }
-            final String shown = text;
+            final CharSequence shown = text;
             mMain.post(() -> {
                 if (mView != null) mView.setText(shown);
             });
@@ -242,28 +255,75 @@ class PerfOverlayController implements SharedPreferences.OnSharedPreferenceChang
         }
     };
 
-    private String sample() {
-        final StringBuilder out = new StringBuilder();
+    private static final int GREEN = 0xFF7DFFA8;
+    private static final int YELLOW = 0xFFFFD166;
+    private static final int RED = 0xFFFF7B72;
+    private static final int DIM = 0x80FFFFFF;
+    /** Seconds of frame rate kept to know what the game reaches. */
+    private static final int PEAK_SAMPLES = 60;   // 30 s at two readings a second
+    private final int[] mFpsHistory = new int[PEAK_SAMPLES];
+    private int mFpsIndex;
+
+    /** The frame rate the game reaches: the 75th percentile of the last 30 seconds that drew. */
+    private int peakFps(int fps) {
+        mFpsHistory[mFpsIndex++ % PEAK_SAMPLES] = Math.max(0, fps);
+        final int[] drawn = new int[PEAK_SAMPLES];
+        int count = 0;
+        for (int sample : mFpsHistory) if (sample > 0) drawn[count++] = sample;
+        if (count == 0) return 0;
+        java.util.Arrays.sort(drawn, 0, count);
+        return drawn[Math.min(count - 1, count * 3 / 4)];
+    }
+
+    private static void add(android.text.SpannableStringBuilder out, String text, int color) {
+        final int start = out.length();
+        out.append(text);
+        out.setSpan(new android.text.style.ForegroundColorSpan(color), start, out.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+    }
+
+    private static void dot(android.text.SpannableStringBuilder out) {
+        add(out, "  ·  ", DIM);
+    }
+
+    /**
+     * fps · 1 % low · power · time left, each in the colour of its state:
+     * fps against what the game reaches (green from 93 %, yellow from 75 %), 1 % low against the
+     * fps (green from 80 %, yellow from 60 %: under that the game stutters), power drawn (green
+     * under 7 W, yellow under 11 W; green when the battery gains), time left (green from 2 h,
+     * yellow from 1 h; green when charging or on the cable).
+     */
+    private CharSequence sample() {
+        final android.text.SpannableStringBuilder out = new android.text.SpannableStringBuilder();
         final int fps = foregroundFps();
-        out.append(fps < 0 ? "-- FPS" : fps + " FPS").append(SEPARATOR);
-        final int busy = (int) readLong(GPU + "gpu_busy_percentage", -1);
-        final long gpuHz = readLong(GPU + "gpuclk", 0);
-        out.append(String.format(Locale.US, "GPU %s %d MHz" + SEPARATOR,
-                busy < 0 ? "--" : busy + " %", gpuHz / 1_000_000));
-        out.append(String.format(Locale.US, "CPU %.2f GHz" + SEPARATOR,
-                maxCpuKhz() / 1_000_000.0));
-        final ActivityManager.MemoryInfo memory = new ActivityManager.MemoryInfo();
-        mContext.getSystemService(ActivityManager.class).getMemoryInfo(memory);
-        out.append(String.format(Locale.US, "RAM %.1f/%.1f GB" + SEPARATOR,
-                (memory.totalMem - memory.availMem) / 1e9, memory.totalMem / 1e9));
-        final Intent battery = mContext.registerReceiver(null,
-                new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-        final double temperature = battery == null ? 0
-                : battery.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) / 10.0;
-        final double watts = Math.abs(readLong(BATTERY + "current_now", 0)) / 1e6
-                * readLong(BATTERY + "voltage_now", 0) / 1e6;
-        out.append(String.format(Locale.US, "%.0f °C  %.1f W", temperature, watts));
-        return out.toString();
+        final int peak = peakFps(fps);
+        if (fps < 0) {
+            add(out, "-- fps", Color.WHITE);
+        } else {
+            add(out, fps + " fps", peak <= 0 || fps >= peak * 0.93f ? GREEN
+                    : fps >= peak * 0.75f ? YELLOW : RED);
+        }
+        dot(out);
+        final int low = lastLowFps();
+        if (fps <= 0 || low <= 0) {
+            add(out, "low --", Color.WHITE);
+        } else {
+            add(out, "low " + low, low >= fps * 0.8f ? GREEN : low >= fps * 0.6f ? YELLOW : RED);
+        }
+        dot(out);
+        final BatteryInfo power = BatteryInfo.read();
+        final double drawn = -power.watts;
+        add(out, power.signedWatts(), drawn <= 0 || drawn < 7 ? GREEN : drawn < 11 ? YELLOW : RED);
+        dot(out);
+        final String timeLeft = power.timeLeft();
+        if (timeLeft != null) {
+            add(out, timeLeft, power.minutesLeft >= 120 ? GREEN
+                    : power.minutesLeft >= 60 ? YELLOW : RED);
+        } else {
+            final String state = power.state();
+            add(out, state != null ? state : "--", state != null ? GREEN : Color.WHITE);
+        }
+        return out;
     }
 
     static long readLong(String path, long fallback) {
@@ -311,7 +371,29 @@ class PerfOverlayController implements SharedPreferences.OnSharedPreferenceChang
         } catch (RuntimeException e) {
             return -1;
         }
-        if (pkg == null) return -1;
+        return pkg == null ? -1 : fpsOf(pkg);
+    }
+
+    /**
+     * Frames per second shown by an app, on whichever screen it is (a game opened on the bottom
+     * screen too). Several controllers ask every second (GPU floor, game CPU, metrics, overlay):
+     * each reading starts dumpsys processes, so one reading of an app serves them all for a moment.
+     */
+    synchronized int fpsOf(String pkg) {
+        final long asked = System.nanoTime() / 1_000_000;
+        if (pkg.equals(mFpsPackage) && asked - mFpsTime < FPS_CACHE_MS) return mFps;
+        mFps = measure(pkg);
+        mFpsPackage = pkg;
+        mFpsTime = asked;
+        return mFps;
+    }
+
+    private static final long FPS_CACHE_MS = 900;
+    private int mFps = -1;
+    private String mFpsPackage;
+    private long mFpsTime;
+
+    private int measure(String pkg) {
         int best = 0;
         final long now = System.nanoTime() / 1_000_000;
         if (!pkg.equals(mLayersPackage) || now - mLayersTime > LAYERS_REFRESH_MS) {

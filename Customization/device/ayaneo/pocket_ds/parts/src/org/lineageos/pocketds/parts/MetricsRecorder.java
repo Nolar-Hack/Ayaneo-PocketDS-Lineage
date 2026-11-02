@@ -47,7 +47,10 @@ final class MetricsRecorder {
     static final int BATT_TEMP = 10;
     static final int FPS_LOW = 11;
     static final int RAM_GB = 12;
-    private static final int COUNT = 13;
+    /** The frequency of each core (MHz): CORE_FREQ + the number of the core. */
+    static final int CORE_FREQ = 13;
+    static final int CORES = 8;
+    private static final int COUNT = CORE_FREQ + CORES;
 
     static final int PERIOD_S = 5;
     private static final int FINE = 720;            // one hour of 5 seconds
@@ -150,6 +153,10 @@ final class MetricsRecorder {
         final PerformanceController engine = PerformanceController.get();
         values[CPU_TEMP] = engine == null ? 0 : engine.fan.hottestZone();
         values[CPU_FREQ] = PerfOverlayController.maxCpuKhz() / 1000f;
+        for (int cpu = 0; cpu < CORES; cpu++) {
+            values[CORE_FREQ + cpu] = PerfOverlayController.readLong(
+                    "/sys/devices/system/cpu/cpu" + cpu + "/cpufreq/scaling_cur_freq", 0) / 1000f;
+        }
         values[GPU_FREQ] = PerfOverlayController.readLong("/sys/class/kgsl/kgsl-3d0/gpuclk", 0)
                 / 1_000_000f;
         float gpuTemp = 0;

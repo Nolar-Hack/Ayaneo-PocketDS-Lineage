@@ -27,6 +27,11 @@ final class ChargeLimitController {
     static final String PREF_ON = "charge_limit_on";
     static final String PREF_LEVEL = "charge_limit_level";
     static final String PREF_STATE = "charge_limit_state";
+    /** While a game is in front and the console is plugged in, it runs on the cable. */
+    static final String PREF_GAME_BYPASS = "charge_game_bypass";
+    /** Under this level the battery is charged even while a game is in front. */
+    static final int BYPASS_FROM = 50;
+    private static ChargeLimitController sInstance;
     private static final String PREF_HELD = "charge_limit_held";
     private static final String QCOM = "/sys/class/qcom-battery/";
     private static final String BATTERY = "/sys/class/power_supply/battery/";
@@ -43,7 +48,16 @@ final class ChargeLimitController {
         mPrefs = PartsPrefs.get(context);
     }
 
+    /** A game came to the front or left it: charging is looked at again. */
+    static void gameChanged() {
+        final ChargeLimitController controller = sInstance;
+        if (controller == null) return;
+        controller.mMain.post(() -> controller.evaluate(controller.mContext.registerReceiver(null,
+                new IntentFilter(Intent.ACTION_BATTERY_CHANGED))));
+    }
+
     void start() {
+        sInstance = this;
         final BroadcastReceiver receiver = new BroadcastReceiver() {
             @Override
             public void onReceive(Context context, Intent intent) {
@@ -53,7 +67,7 @@ final class ChargeLimitController {
         evaluate(mContext.registerReceiver(receiver,
                 new IntentFilter(Intent.ACTION_BATTERY_CHANGED)));
         mPrefs.registerOnSharedPreferenceChangeListener((prefs, key) -> {
-            if (PREF_ON.equals(key) || PREF_LEVEL.equals(key)) {
+            if (PREF_ON.equals(key) || PREF_LEVEL.equals(key) || PREF_GAME_BYPASS.equals(key)) {
                 evaluate(mContext.registerReceiver(null,
                         new IntentFilter(Intent.ACTION_BATTERY_CHANGED)));
             }
@@ -67,14 +81,20 @@ final class ChargeLimitController {
         final int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) * 100
                 / Math.max(1, battery.getIntExtra(BatteryManager.EXTRA_SCALE, 100));
         final int limit = limit();
-        if (!on || !plugged) {
+        // Playing plugged in: the charger powers the console and the battery rests (measured with
+        // a PD charger and a game: -17 mA from the battery, against +800 mA of charge otherwise).
+        final boolean bypass = mPrefs.getBoolean(PREF_GAME_BYPASS, false)
+                && PerfHints.gameInFront()
+                && level >= (mHeld ? BYPASS_FROM - HYSTERESIS : BYPASS_FROM);
+        if (!plugged || (!on && !bypass)) {
             if (mHeld || mPrefs.getBoolean(PREF_HELD, false)) release();
             if (!on) mPrefs.edit().remove(PREF_STATE).apply();
             return;
         }
-        if (!mHeld && level >= limit) {
-            hold(limit);
-        } else if (mHeld && level <= limit - HYSTERESIS) {
+        final boolean overLimit = on && (mHeld ? level > limit - HYSTERESIS : level >= limit);
+        if (!mHeld && (overLimit || bypass)) {
+            hold(on ? limit : 100);
+        } else if (mHeld && !overLimit && !bypass) {
             release();
         }
     }
@@ -96,6 +116,8 @@ final class ChargeLimitController {
                 "echo 1 > " + QCOM + "restrict_chg",
                 "[ -w " + BATTERY + "charge_control_end_threshold ] && echo " + limit
                         + " > " + BATTERY + "charge_control_end_threshold");
+        // The note under the charge limit is about the limit, not about playing on the charger.
+        if (!mPrefs.getBoolean(PREF_ON, false)) return;
         mPrefs.edit().putString(PREF_STATE, "Limit reached, checking…").apply();
         mMain.removeCallbacks(this::verify);
         mMain.postDelayed(this::verify, CHECK_DELAY_MS);

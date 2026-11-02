@@ -37,6 +37,7 @@ public class PocketDSApplication extends Application {
         start("Foreground", () -> new ForegroundWatcher(this).start());
         start("Focus", () -> new FocusController(this).start());
         start("GameProfiles", () -> new GameProfiles(this).start());
+        start("PerfHints", () -> new PerfHints(this).start());
         start("ControllerProfiles", () -> new ControllerProfiles(this).start());
         start("ChargeLimit", () -> new ChargeLimitController(this).start());
         start("Metrics", () -> new MetricsRecorder(this).start());

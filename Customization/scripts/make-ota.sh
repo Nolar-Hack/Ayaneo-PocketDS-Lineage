@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the two update packages of the build that just finished, and prepares the next comparison.
 #
-#   make-ota.sh [--no-incremental] [--no-promote] [--base DIR] [--out DIR]
+#   make-ota.sh [--no-incremental] [--incremental-only] [--no-promote] [--base DIR] [--out DIR]
 #
 #   OTA/Full/<name>-full.zip                   complete package: new installation (recovery) or updater
 #   OTA/Incremental/<name>-incremental.zip     only what changed since the previous build:
@@ -34,6 +34,7 @@ PRODUCT_OUT="$SRC_DIR/out/target/product/pocket_ds"
 OTA_DIR="$REPO/../OTA"
 COMPARE=""
 INCREMENTAL=true
+FULL_PACKAGE=true
 PROMOTE=true
 # How many published releases get a direct incremental package to the new build.
 KEEP_RELEASES="${OTA_KEEP_RELEASES:-3}"
@@ -44,6 +45,7 @@ ASSERT_DEVICES="${OTA_ASSERT_DEVICES:-PocketDS|kalama}" # pocketds.conf
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --no-incremental) INCREMENTAL=false ;;
+        --incremental-only) FULL_PACKAGE=false ;;   # for tests: only the incremental from the previous build
         --no-promote) PROMOTE=false ;;
         --base) COMPARE="$2"; shift ;;
         --out) OTA_DIR="$2"; shift ;;
@@ -115,9 +117,13 @@ JAVA_BIN="$(ls -d "$SRC_DIR"/prebuilts/jdk/jdk*/linux-x86/bin 2>/dev/null | sort
 export PATH="$SRC_DIR/out/host/linux-x86/bin:$JAVA_BIN:$PATH"
 command -v java >/dev/null || { echo "java not found (looked in $JAVA_BIN)" >&2; exit 1; }
 
-echo "== full package (key $KEY)"
-ota_from_target_files -k "$KEY" "$WORK/new.zip" "$OTA_DIR/Full/$NAME-full.zip"
-(cd "$OTA_DIR/Full" && sha256sum "$NAME-full.zip" > "$NAME-full.zip.sha256sum")
+if [[ "$FULL_PACKAGE" == true ]]; then
+    echo "== full package (key $KEY)"
+    ota_from_target_files -k "$KEY" "$WORK/new.zip" "$OTA_DIR/Full/$NAME-full.zip"
+    (cd "$OTA_DIR/Full" && sha256sum "$NAME-full.zip" > "$NAME-full.zip.sha256sum")
+else
+    echo "== full package skipped (--incremental-only)"
+fi
 
 if [[ "$INCREMENTAL" == true && -d "$COMPARE/target_files" && -f "$COMPARE/init_boot.img" ]]; then
     echo "== incremental package (from $(grep '^date:' "$COMPARE/INFO" 2>/dev/null || echo "$COMPARE"))"
@@ -131,7 +137,7 @@ fi
 
 # --- direct incrementals from the published releases (one restart whatever the age of the console)
 HISTORY="$WORKROOT/History"
-if [[ "$INCREMENTAL" == true && -d "$HISTORY" ]]; then
+if [[ "$INCREMENTAL" == true && "$FULL_PACKAGE" == true && -d "$HISTORY" ]]; then
     # the newest published releases, but not this version and not the build Compare already covers
     mapfile -t BASES < <(for d in "$HISTORY"/*/; do
             v="$(basename "$d")"
@@ -163,7 +169,11 @@ export NAME VERSION VERSION_CODE RELEASE_URL FULL INC
 # "notes" of update.json: the "- " lines of OTA/release-notes-<version>.md, shown in PocketDS Extra.
 NOTES_FILE="$OTA_DIR/release-notes-$VERSION.md"
 export NOTES_TEXT="$( [[ -f "$NOTES_FILE" ]] && sed -n 's/^- //p' "$NOTES_FILE" | sed 's/^/• /' || true )"
-export BUILD_ID="$(meta "$FULL" post-build-incremental)"
+if [[ -f "$FULL" ]]; then
+    export BUILD_ID="$(meta "$FULL" post-build-incremental)"
+else
+    export BUILD_ID="$(meta "$INC" post-build-incremental)"   # --incremental-only
+fi
 [[ -f "$INC" ]] && export FROM_ID="$(meta "$INC" pre-build-incremental)" || export FROM_ID=""
 # every incremental package of this version, with the build it starts from
 INC_LIST=""
@@ -182,7 +192,8 @@ def entry(path):
             "size": os.path.getsize(path), "sha256": h.hexdigest()}
 e = os.environ
 d = {"version": e["VERSION"], "versionCode": int(e["VERSION_CODE"]), "buildId": e["BUILD_ID"],
-     "date": __import__("datetime").date.today().isoformat(), "notes": e["NOTES_TEXT"], "full": entry(e["FULL"]), "incremental": None}
+     "date": __import__("datetime").date.today().isoformat(), "notes": e["NOTES_TEXT"], "full": entry(e["FULL"]) if os.path.isfile(e["FULL"]) else None,
+     "incremental": None}
 if e["FROM_ID"] and os.path.isfile(e["INC"]):
     d["incremental"] = dict(entry(e["INC"]), **{"from": e["FROM_ID"]})
 # all the incremental packages, one for each build a console may run (the first that matches wins)

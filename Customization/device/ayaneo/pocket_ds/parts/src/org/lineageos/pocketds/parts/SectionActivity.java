@@ -432,6 +432,10 @@ public class SectionActivity extends Activity {
                 null);
         ui.note(page, chargeState != null ? chargeState
                 : "Charging restarts 3 points under the limit.");
+        ui.switchRow(charging, "🎮", Ui.PURPLE, "Play on the charger",
+                "While a game is in front and the battery is above 50 %, the console runs on the "
+                + "charger and the battery is not charged. Needs a fast (USB-C PD) charger",
+                ChargeLimitController.PREF_GAME_BYPASS, false);
         ui.switchRow(charging, "🔌", Ui.BLUE, "Never power the USB port",
                 "Stops the console from draining its battery into a cable that is plugged "
                 + "to nothing, for example a computer that is off",

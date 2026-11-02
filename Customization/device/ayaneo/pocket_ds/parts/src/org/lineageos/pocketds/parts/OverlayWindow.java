@@ -61,8 +61,10 @@ final class OverlayWindow extends android.content.ContextWrapper {
     private static int ACCENT = 0xFF5B9DFF;
     private static final int ON_ACCENT = 0xFF07101F;
 
-    private static final String[] REFRESH_VALUES = {"auto", "60", "90", "120", "144", "165"};
-    private static final String[] REFRESH_NAMES = {"Auto", "60", "90", "120", "144", "165"};
+    // No automatic choice: the refresh rate of the screen follows the content and changed all the
+    // time during a game, which was suspected of crashes. One fixed rate is chosen.
+    private static final String[] REFRESH_VALUES = {"60", "90", "120", "144", "165"};
+    private static final String[] REFRESH_NAMES = {"60", "90", "120", "144", "165"};
 
     private final Handler mMain = new Handler(Looper.getMainLooper());
     private HandlerThread mThread;
@@ -520,6 +522,18 @@ final class OverlayWindow extends android.content.ContextWrapper {
         mSummary.setSingleLine(false);
         summaryRow.addView(mSummary, new LinearLayout.LayoutParams(0,
                 ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        // Game mode: frequencies held for a game in front (PerfHints); off to compare, or to
+        // save the battery with a light game.
+        final android.content.SharedPreferences prefs = PartsPrefs.get(this);
+        final TextView gameMode = chip("Game mode", prefs.getBoolean(PartsPrefs.GAME_MODE, true));
+        gameMode.setOnClickListener(v -> {
+            final boolean on = !prefs.getBoolean(PartsPrefs.GAME_MODE, true);
+            prefs.edit().putBoolean(PartsPrefs.GAME_MODE, on).apply();
+            setChip(gameMode, on);
+            PerfHints.gameModeChanged();
+        });
+        summaryRow.addView(gameMode);
+        space(summaryRow, 8);
         final TextView edit = chip("Edit profiles", false);
         edit.setOnClickListener(v -> showProfileEditor(-1));
         summaryRow.addView(edit);
@@ -617,6 +631,10 @@ final class OverlayWindow extends android.content.ContextWrapper {
     private static final int[] METRIC_COLORS = {0xFF5B9DFF, 0xFFA78BFA, 0xFF34C3A5, 0xFF43C27A,
         0xFF34C3A5, 0xFFF2A33A, 0xFFF06B5E, 0xFF5B9DFF, 0xFFA78BFA, 0xFF43C27A, 0xFFF2A33A,
         0xFFF06B5E, 0xFF34C3A5};
+    // One colour for each core of the frequency graph: little (0-2) in blues, big (3-6) in
+    // greens and yellows, prime (7) in red.
+    private static final int[] CORE_COLORS = {0xFF5B9DFF, 0xFF7FB6FF, 0xFF9CC9FF, 0xFF34C3A5,
+        0xFF43C27A, 0xFFB8D94A, 0xFFF2A33A, 0xFFF06B5E};
     private static final float[] METRIC_MAX = {100, 100, 100, 0, 0, 0, 0, 0, 0, 100, 0, 0, 0};
     /** The curves that go together: a tap on a chip shows the next one of the same card. */
     private static final int[][] METRIC_GROUPS = {
@@ -746,8 +764,16 @@ final class OverlayWindow extends android.content.ContextWrapper {
         final MetricsRecorder recorder = MetricsRecorder.get();
         if (recorder == null) return;
         final float[] values = recorder.series(mGraphMetric, mGraphSeconds);
-        mChart.set(values, METRIC_COLORS[mGraphMetric], METRIC_UNITS[mGraphMetric].trim().isEmpty()
-                ? "" : "", METRIC_MAX[mGraphMetric]);
+        if (mGraphMetric == MetricsRecorder.CPU_FREQ) {
+            // The frequency of each core: a curve for every one of the eight.
+            final float[][] cores = new float[MetricsRecorder.CORES][];
+            for (int cpu = 0; cpu < cores.length; cpu++) {
+                cores[cpu] = recorder.series(MetricsRecorder.CORE_FREQ + cpu, mGraphSeconds);
+            }
+            mChart.setMulti(cores, CORE_COLORS, "", 0);
+        } else {
+            mChart.set(values, METRIC_COLORS[mGraphMetric], "", METRIC_MAX[mGraphMetric]);
+        }
         // A frame rate or a temperature of 0 means "nothing to measure" (idle, off): not counted.
         final boolean skipZero = mGraphMetric == MetricsRecorder.FPS
                 || mGraphMetric == MetricsRecorder.FPS_LOW
@@ -2393,12 +2419,15 @@ final class OverlayWindow extends android.content.ContextWrapper {
         final int level = battery == null ? 0 : battery.getIntExtra(BatteryManager.EXTRA_LEVEL, 0);
         final double temp = battery == null ? 0
                 : battery.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) / 10.0;
-        final long microAmps = PerfOverlayController.readLong(
-                "/sys/class/power_supply/battery/current_now", 0);
-        final long microVolts = PerfOverlayController.readLong(
-                "/sys/class/power_supply/battery/voltage_now", 0);
-        final double watts = microAmps / 1e6 * microVolts / 1e6;
-        final String batteryLine = String.format(Locale.US, "%.0f °C · %.1f W", temp, watts);
+        // Big: the time left while the battery is drained, else its level. Below: the level (when
+        // the time is shown), the temperature and the power, + gained or - lost.
+        final BatteryInfo power = BatteryInfo.read();
+        final String timeLeft = power.timeLeft();
+        final String batteryBig = timeLeft != null ? timeLeft : level + " %";
+        final String state = power.state();
+        final String batteryLine = (timeLeft != null ? level + " % · " : "")
+                + String.format(Locale.US, "%.0f °C · ", temp) + power.signedWatts()
+                + (state != null ? " · " + state : "");
         final float gpuTempShown = gpuTemp;
         // The frame rate of the last 5 minutes (the moments when the app draws), and its 1 % low.
         final MetricsRecorder recorder = MetricsRecorder.get();
@@ -2438,7 +2467,7 @@ final class OverlayWindow extends android.content.ContextWrapper {
             mMemValue.setText(memPercent + " %");
             mMemLine.setText(memLine);
             mFanValue.setText(rpm + " rpm");
-            mBatteryValue.setText(level + " %");
+            mBatteryValue.setText(batteryBig);
             mBatteryLine.setText(batteryLine);
             setBar(mCpuBar, cpu / 100f);
             try {

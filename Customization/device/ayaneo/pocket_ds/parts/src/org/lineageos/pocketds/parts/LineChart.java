@@ -22,6 +22,8 @@ final class LineChart extends View {
     private final Paint mPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path mPath = new Path();
     private float[] mValues = new float[0];
+    private float[][] mSeries;      // several curves (one for each core), or null
+    private int[] mColors;
     private float mFixedMax;
     private int mColor = 0xFF5B9DFF;
     private String mUnit = "";
@@ -34,6 +36,7 @@ final class LineChart extends View {
 
     /** @param fixedMax top of the scale, or 0 to take the highest sample */
     void set(float[] values, int color, String unit, float fixedMax) {
+        mSeries = null;
         mValues = values;
         mColor = color;
         mUnit = unit;
@@ -41,8 +44,22 @@ final class LineChart extends View {
         invalidate();
     }
 
+    /** Several curves on one scale, a line each, with the number of each in colour on top. */
+    void setMulti(float[][] series, int[] colors, String unit, float fixedMax) {
+        mSeries = series;
+        mColors = colors;
+        mUnit = unit;
+        mFixedMax = fixedMax;
+        mValues = new float[0];
+        invalidate();
+    }
+
     @Override
     protected void onDraw(Canvas canvas) {
+        if (mSeries != null) {
+            drawMulti(canvas);
+            return;
+        }
         final float left = 64 * mScale;
         final float top = 12 * mScale;
         final float right = getWidth() - 10 * mScale;
@@ -86,6 +103,56 @@ final class LineChart extends View {
         mPaint.setStrokeJoin(Paint.Join.ROUND);
         mPaint.setColor(mColor);
         canvas.drawPath(mPath, mPaint);
+    }
+
+    private void drawMulti(Canvas canvas) {
+        final float left = 64 * mScale;
+        final float top = 12 * mScale;
+        final float right = getWidth() - 10 * mScale;
+        final float bottom = getHeight() - 10 * mScale;
+        float max = mFixedMax;
+        if (max <= 0) {
+            for (float[] values : mSeries) for (float v : values) max = Math.max(max, v);
+            max = niceCeil(Math.max(max, 1f));
+        }
+        mPaint.setShader(null);
+        mPaint.setTextSize(13 * mScale);
+        for (int i = 0; i <= 4; i++) {
+            final float y = bottom - (bottom - top) * i / 4f;
+            mPaint.setColor(LINE);
+            mPaint.setStyle(Paint.Style.STROKE);
+            mPaint.setStrokeWidth(Math.max(1, mScale));
+            canvas.drawLine(left, y, right, y, mPaint);
+            mPaint.setStyle(Paint.Style.FILL);
+            mPaint.setColor(DIM);
+            mPaint.setTextAlign(Paint.Align.RIGHT);
+            canvas.drawText(format(max * i / 4f), left - 8 * mScale, y + 5 * mScale, mPaint);
+        }
+        for (int s = 0; s < mSeries.length; s++) {
+            final float[] values = mSeries[s];
+            if (values.length < 2) continue;
+            mPath.reset();
+            for (int i = 0; i < values.length; i++) {
+                final float x = left + (right - left) * i / (values.length - 1);
+                final float y = bottom - (bottom - top) * Math.min(1f, values[i] / max);
+                if (i == 0) mPath.moveTo(x, y); else mPath.lineTo(x, y);
+            }
+            mPaint.setStyle(Paint.Style.STROKE);
+            mPaint.setStrokeWidth(1.8f * mScale);
+            mPaint.setStrokeJoin(Paint.Join.ROUND);
+            mPaint.setColor(mColors[s % mColors.length]);
+            canvas.drawPath(mPath, mPaint);
+        }
+        // The key: the number of each core in the colour of its curve.
+        mPaint.setStyle(Paint.Style.FILL);
+        mPaint.setTextAlign(Paint.Align.LEFT);
+        mPaint.setTextSize(14 * mScale);
+        float x = left + 6 * mScale;
+        for (int s = 0; s < mSeries.length; s++) {
+            mPaint.setColor(mColors[s % mColors.length]);
+            canvas.drawText(String.valueOf(s), x, top + 14 * mScale, mPaint);
+            x += 22 * mScale;
+        }
     }
 
     private static float niceCeil(float value) {

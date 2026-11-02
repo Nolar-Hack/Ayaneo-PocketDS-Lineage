@@ -40,14 +40,24 @@ final class GpuFloorController {
     private static final float VERY_LOW = 0.80f;
     /** From this share on, the frame rate is as good as the one the app reaches. */
     private static final float GOOD = 0.97f;
+    /**
+     * The GPU is kept between these busy shares (%): above BUSY_HIGH it is a long part of every
+     * frame (the frame waits on it, seen: 80 % busy at 295 MHz), so the floor climbs; under
+     * BUSY_LOW, with the frame rate holding, it goes down. A game held back by the processor
+     * (seen: the GPU 27 % busy while the frame rate fell) does not get its GPU pushed for nothing.
+     */
+    private static final long BUSY_HIGH = 50;
+    private static final long BUSY_LOW = 25;
+    private static final long BUSY_VERY_HIGH = 80;
     /** Polls in a row under LOW before the minimum climbs. */
-    private static final int UP_POLLS = 2;
-    /** Seconds of good frame rate before the minimum goes down one step. */
-    private static final int DOWN_AFTER = 15;
+    private static final int UP_POLLS = 1;   // climbing is urgent: the very first busy poll
+    /** Seconds in a row with the GPU little busy (and the frame rate holding) before the minimum
+     * goes down one step: a few quiet seconds (a menu, a dialogue) are not a reason to drop. */
+    private static final int DOWN_AFTER = 30;
     /** Seconds during which a step that was too low is not tried again. */
-    private static final int AVOID_SECONDS = 60;
+    private static final int AVOID_SECONDS = 180;
     /** Polls without a frame before the minimum is lifted. */
-    private static final int NO_FRAMES_POLLS = 15;
+    private static final int NO_FRAMES_POLLS = 30;
 
     private final PerformanceProfiles mProfiles;
     private final android.content.Context mContext;
@@ -168,20 +178,23 @@ final class GpuFloorController {
         mLastFps = fps;
         mLastPeak = peak;
         final int top = mSteps.length - 1;
-        if (fps < peak * LOW) {
+        final long busy = PerfOverlayController.readLong(GPU + "gpu_busy_percentage", 0);
+        if (busy > BUSY_HIGH) {
             mGood = 0;
             if (++mBelow >= UP_POLLS) {
                 mBelow = 0;
                 // the step we came from was too low: not under it again for a while
                 mAvoidLevel = mLevel;
                 mAvoidUntil = now + AVOID_SECONDS;
-                final int next = Math.min(top, mLevel + (fps < peak * VERY_LOW ? 2 : 1));
+                final boolean far = busy > BUSY_VERY_HIGH || fps < peak * VERY_LOW;
+                // Up fast (a frame waiting on the GPU is a stutter now), down slowly.
+                final int next = Math.min(top, mLevel + (far ? 3 : 2));
                 if (next != mLevel) {
                     mLevel = next;
                     set(mSteps[mLevel]);
                 }
             }
-        } else if (fps >= peak * GOOD) {
+        } else if (busy < BUSY_LOW && fps >= peak * GOOD) {
             mBelow = 0;
             if (++mGood >= DOWN_AFTER) {
                 mGood = 0;
@@ -192,8 +205,10 @@ final class GpuFloorController {
                 }
             }
         } else {
-            // between the two: neither climbs nor counts towards going down
+            // in the band (or the frame rate not holding with the GPU not busy: the processor is
+            // the limit): neither climbs nor counts towards going down
             mBelow = 0;
+            mGood = 0;
         }
     }
 
