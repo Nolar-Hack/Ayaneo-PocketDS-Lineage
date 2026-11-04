@@ -166,8 +166,12 @@ meta() { unzip -p "$1" META-INF/com/android/metadata | sed -n "s/^$2=//p"; }
 FULL="$OTA_DIR/Full/$NAME-full.zip"
 INC="$OTA_DIR/Incremental/$NAME-incremental.zip"
 export NAME VERSION VERSION_CODE RELEASE_URL FULL INC
-# "notes" of update.json: the "- " lines of OTA/release-notes-<version>.md, shown in PocketDS Extra.
-NOTES_FILE="$OTA_DIR/release-notes-$VERSION.md"
+# "notes" of update.json: the "- " lines of the release notes (RELEASE_NOTES of pocketds.conf,
+# "OTA/Patch Notes/release-notes-<version>.md"), shown in PocketDS Extra. The older versions had
+# theirs in OTA/ itself.
+NOTES_FILE="$REPO/../${RELEASE_NOTES:-OTA/Patch Notes/release-notes-%VERSION%.md}"
+NOTES_FILE="${NOTES_FILE//%VERSION%/$VERSION}"
+[[ -f "$NOTES_FILE" ]] || NOTES_FILE="$OTA_DIR/release-notes-$VERSION.md"
 export NOTES_TEXT="$( [[ -f "$NOTES_FILE" ]] && sed -n 's/^- //p' "$NOTES_FILE" | sed 's/^/• /' || true )"
 if [[ -f "$FULL" ]]; then
     export BUILD_ID="$(meta "$FULL" post-build-incremental)"
@@ -221,11 +225,28 @@ if [[ "$PROMOTE" == true ]]; then
     mkdir -p "$HISTORY"
     rm -rf "$HISTORY/$VERSION"
     cp -al "$CURRENT" "$HISTORY/$VERSION"
-    keep=" $(for d in "$HISTORY"/*/; do v="$(basename "$d")"; [[ -f "$d/.published" ]] && echo "$v"; done \
+    # (if, not &&: with pipefail a last folder without the mark failed the loop, and set -e stopped
+    # the script here before anything was dropped)
+    keep=" $(for d in "$HISTORY"/*/; do v="$(basename "$d")"; if [[ -f "$d/.published" ]]; then echo "$v"; fi; done \
         | sort -V | tail -n "$KEEP_RELEASES" | tr '\n' ' ')$VERSION "
     for d in "$HISTORY"/*/; do
         v="$(basename "$d")"
         [[ "$keep" == *" $v "* ]] || { echo "== History: dropping $v"; rm -rf "$d"; }
+    done
+fi
+# --- Full and Incremental: only the packages of this version stay (the older ones are on their
+# GitHub release, or were never published). A build without a complete package (--incremental-only)
+# keeps the newest complete package of an older version, for a fresh install.
+if [[ "$PROMOTE" == true ]]; then
+    keep_full=""
+    [[ -f "$FULL" ]] || keep_full="$(ls -t "$OTA_DIR"/Full/*-full.zip 2>/dev/null | head -1 || true)"
+    for f in "$OTA_DIR"/Full/* "$OTA_DIR"/Incremental/*; do
+        [[ -f "$f" ]] || continue
+        b="$(basename "$f")"
+        [[ "$b" == PocketDS-"$VERSION"-* ]] && continue
+        [[ -n "$keep_full" && ( "$f" == "$keep_full" || "$f" == "$keep_full.sha256sum" ) ]] && continue
+        echo "== dropping $b"
+        rm -f "$f"
     done
 fi
 echo "== done"

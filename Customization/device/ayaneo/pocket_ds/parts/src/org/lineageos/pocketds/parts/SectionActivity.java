@@ -464,9 +464,12 @@ public class SectionActivity extends Activity {
         ui.switchRow(card, "🔌", Ui.GREEN, "Only on battery",
                 "For the screen-off delay: not while charging",
                 PartsPrefs.POWEROFF_ONLY_ON_BATTERY, true);
+        ui.switchRow(card, "🎮", Ui.BLUE, "Sleep during a game",
+                "A game open: sleep and resume it, power off under 10 %",
+                PartsPrefs.POWEROFF_KEEP_GAME, true);
         ui.note(page, "Lid closed: powers off even when plugged in, unless data is moving over USB "
-                + "(checked again every 5 min). Lid open and charging: never powers off. "
-                + "Opening the lid or waking the screen cancels the countdown.");
+                + "(checked again every 5 min) or a game is open. Lid open and charging: never "
+                + "powers off. Opening the lid or waking the screen cancels the countdown.");
     }
 
     private final Handler mUpdateHandler = new Handler(Looper.getMainLooper());

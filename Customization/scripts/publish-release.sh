@@ -50,8 +50,9 @@ gh repo view "$RELEASE_REPO" >/dev/null 2>&1 || die "Repository $RELEASE_REPO no
 if gh release view "$TAG" -R "$RELEASE_REPO" >/dev/null 2>&1; then die "Release $TAG already exists in $RELEASE_REPO"; fi
 
 # The notes: the file of pocketds.conf if it is there, else a short text made from the packages.
-NOTES="$REPO_DIR/../${RELEASE_NOTES:-OTA/release-notes-%VERSION%.md}"
+NOTES="$REPO_DIR/../${RELEASE_NOTES:-OTA/Patch Notes/release-notes-%VERSION%.md}"
 NOTES="${NOTES//%VERSION%/$VERSION}"
+[[ -f "$NOTES" ]] || [[ ! -f "$OTA_DIR/release-notes-$VERSION.md" ]] || NOTES="$OTA_DIR/release-notes-$VERSION.md"
 TMP_NOTES=""
 if [[ ! -f "$NOTES" ]]; then
     TMP_NOTES="$(mktemp)"

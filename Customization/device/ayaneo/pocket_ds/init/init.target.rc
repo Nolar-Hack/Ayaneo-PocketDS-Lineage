@@ -262,6 +262,14 @@ on property:sys.usb.config=accessory,adb && property:sys.usb.configfs=2
 on property:sys.usb.config=none && property:sys.usb.configfs=2
     stop adbd
 
+# USB 3 at 5 Gb/s at most: at 10 Gb/s (SuperSpeed Plus) the link of the console drops every 2 to
+# 3 seconds on a 10/20 Gb/s cable and port (seen 2026-11-03: the computer loses the console, finds
+# it again, and so on; a Pixel holds on the same cable and port, and at 5 Gb/s the console holds).
+# The gadget keeps this value across the HAL rebinds; it can only be written while the UDC is not
+# bound, so here, after zygote-start made g1 and before the HAL starts on boot.
+on early-boot
+    write /config/usb_gadget/g1/max_speed super-speed
+
 # Ayaneo additions from the stock init.qcom.usb.rc "on charger" (off-mode charging):
 # charging LED, display parameters, and the fan speed saved in tsnv.
 on charger

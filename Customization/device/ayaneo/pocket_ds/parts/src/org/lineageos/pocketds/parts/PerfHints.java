@@ -141,14 +141,26 @@ final class PerfHints implements ForegroundWatcher.Listener, DisplayManager.Disp
      */
     private static final String[] EMULATORS = {"emulator", "retroarch", "ppsspp", "dolphin",
             "citra", "lime3ds", "azahar", "mandarine", "melonds", "duckstation", "aethersx2",
-            "nethersx2", "yuzu", "eden", "citron", "sudachi", "skyline", "vita3k", "cemu",
+            "nethersx2", "yuzu", "dev.eden", "citron", "sudachi", "skyline", "vita3k", "cemu",
             "redream", "flycast", "drastic", "lemuroid", "mupen64", "ryujinx", "xenia",
-            "winlator", "scummvm"};
+            "winlator", "scummvm", "eglantine", "armsx", "gopher64", "epsxe"};
+    // ("dev.eden", not "eden": "credentialmanager" holds those letters)
+    /**
+     * The emulators and PC game launchers of the Obtainium Emulation Pack
+     * (RJNY/Obtainium-Emulation-Pack, categories Emulator and PC Emulation) that no word above
+     * finds.
+     */
+    private static final java.util.Set<String> GAME_APPS = java.util.Set.of(
+            "aenu.aps3e", "com.virtualapplications.play", "net.rpcsx", "gamehub.lite",
+            "app.gamenative", "org.force9.starboard", "me.magnum.melondualds", "io.wip.pico8",
+            "com.izzy2lost.x1box", "com.rfandango.haku_x", "io.navivani.swiff",
+            "xendroid.compose", "com.droiddeck.launcher");
     private static final java.util.regex.Pattern EMU_WORD =
             java.util.regex.Pattern.compile("(^|[._])emu([._]|$)");
 
     static boolean isEmulator(String pkg) {
         final String name = pkg.toLowerCase(java.util.Locale.ROOT);
+        if (GAME_APPS.contains(name)) return true;
         for (String word : EMULATORS) if (name.contains(word)) return true;
         return EMU_WORD.matcher(name).find();
     }
@@ -184,9 +196,14 @@ final class PerfHints implements ForegroundWatcher.Listener, DisplayManager.Disp
      * profile in Profiles.
      */
     private boolean isGame(String pkg) {
+        return isGame(mContext, pkg);
+    }
+
+    static boolean isGame(Context context, String pkg) {
+        if (pkg == null) return false;
         if (isEmulator(pkg)) return true;
         try {
-            final ApplicationInfo info = mContext.getPackageManager().getApplicationInfo(pkg, 0);
+            final ApplicationInfo info = context.getPackageManager().getApplicationInfo(pkg, 0);
             if (info.category == ApplicationInfo.CATEGORY_GAME
                     || (info.flags & ApplicationInfo.FLAG_IS_GAME) != 0) {
                 return true;
@@ -194,7 +211,7 @@ final class PerfHints implements ForegroundWatcher.Listener, DisplayManager.Disp
         } catch (PackageManager.NameNotFoundException e) {
             // not a game
         }
-        return GameSetups.assignedId(PartsPrefs.get(mContext), pkg) != null;
+        return GameSetups.assignedId(PartsPrefs.get(context), pkg) != null;
     }
 
     @Override

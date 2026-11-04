@@ -13,3 +13,7 @@ allow system_app vendor_sysfs_kgsl_gpuclk:file r_file_perms;
 # The overlay also reads /proc/stat, /proc/sys/kernel/pid_max and runs "top": platform types
 # (proc_stat, proc_pid_max, other domains' /proc entries) that vendor policy cannot allow;
 # when going to enforcing, check that it still works (denials seen while permissive).
+
+# PocketDS Parts, USB power guard: reads the power role of the USB-C port (the change itself goes
+# through the root shell)
+r_dir_file(system_app, sysfs_typec)

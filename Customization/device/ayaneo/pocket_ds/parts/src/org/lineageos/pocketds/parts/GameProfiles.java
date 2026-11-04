@@ -27,6 +27,7 @@ final class GameProfiles implements ForegroundWatcher.Listener {
     void start() {
         final ForegroundWatcher watcher = ForegroundWatcher.get();
         if (watcher != null) watcher.add(this);
+        EmulatorDefaults.createProfiles(mPrefs);
     }
 
     /** The profile chosen for an app: 0 to 4, or -1 for none. */
@@ -38,7 +39,10 @@ final class GameProfiles implements ForegroundWatcher.Listener {
     public void onForeground(ActivityManager.RunningTaskInfo app) {
         final PerformanceController engine = PerformanceController.get();
         if (engine == null) return;
-        final int wanted = app == null ? -1 : profileOf(mPrefs, app.baseActivity.getPackageName());
+        final String pkg = app == null ? null : app.baseActivity.getPackageName();
+        // an emulator seen for the first time gets the default profile of what it emulates
+        EmulatorDefaults.assignIfNew(mPrefs, pkg);
+        final int wanted = pkg == null ? -1 : profileOf(mPrefs, pkg);
         if (wanted >= 0 && wanted < PerformanceProfiles.NAMES.length) {
             if (mRestore < 0) mRestore = engine.profiles.current();
             if (engine.profiles.current() != wanted) engine.select(wanted);

@@ -36,6 +36,9 @@ class PowerOffController {
     private static final long RETRY_MS = 5 * 60_000L;
     private static final long SAMPLE_MS = 10_000L;
     private static final long BUSY_INTERRUPTS = 200;
+    /** A game left open: the console sleeps, checked again this often, off under this level. */
+    private static final long GAME_CHECK_MS = 30 * 60_000L;
+    private static final int GAME_LOW_BATTERY = 10;
 
     private final Context mContext;
     private final SharedPreferences mPrefs;
@@ -110,6 +113,7 @@ class PowerOffController {
         @Override
         public void onAlarm() {
             if (!mLidClosed) return;
+            if (keepGame("lid closed", this, "pocketds-poweroff-lid")) return;
             // Lid closed: power off even when plugged, unless data is going through the USB port.
             // A closed lid with nothing happening on the port only drains the battery.
             new Thread(() -> {
@@ -131,10 +135,36 @@ class PowerOffController {
         @Override
         public void onAlarm() {
             if (!mContext.getSystemService(PowerManager.class).isInteractive()) {
+                if (keepGame("screen off", this, "pocketds-poweroff-screen")) return;
                 powerOff("screen off");
             }
         }
     };
+
+    /**
+     * A game is open (the app in front is a game): the console stays asleep with the game paused,
+     * as on a Switch, instead of losing the game by powering off; it is checked again every 30
+     * minutes and powered off once the battery is under 10 %. True when the power off is held.
+     */
+    private boolean keepGame(String why, AlarmManager.OnAlarmListener alarm, String tag) {
+        if (!mPrefs.getBoolean(PartsPrefs.POWEROFF_KEEP_GAME, true)) return false;
+        final ForegroundWatcher watcher = ForegroundWatcher.get();
+        final android.app.ActivityManager.RunningTaskInfo app =
+                watcher == null ? null : watcher.current();
+        final String pkg = app == null ? null : app.baseActivity.getPackageName();
+        if (!PerfHints.isGame(mContext, pkg)) return false;
+        final int level = mContext.getSystemService(BatteryManager.class)
+                .getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+        if (level > 0 && level < GAME_LOW_BATTERY) {
+            Log.i(TAG, "Game " + pkg + " open but battery at " + level + " %: powering off");
+            return false;
+        }
+        Log.i(TAG, "Power off (" + why + ") held: game " + pkg + " open, battery " + level
+                + " %, checked again in 30 min");
+        mAlarms.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                SystemClock.elapsedRealtime() + GAME_CHECK_MS, tag, alarm, mHandler);
+        return true;
+    }
 
     /**
      * True when the USB device side is enumerated by a host and moving data: the controller state

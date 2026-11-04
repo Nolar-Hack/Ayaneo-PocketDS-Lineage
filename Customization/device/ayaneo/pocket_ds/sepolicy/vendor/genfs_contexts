@@ -21,3 +21,8 @@ genfscon sysfs /devices/platform/soc/soc:focaltech_fp/wakeup u:object_r:sysfs_wa
 # Wakeup sources of the charger IC power supply, read by system_suspend (a platform domain that
 # vendor policy cannot name: they are labelled with the type it may read)
 genfscon sysfs /devices/platform/soc/9c0000.qcom,qupv3_i2c_geni_se/988000.i2c/i2c-0/0-005f/power_supply/hl7139_master/wakeup u:object_r:sysfs_wakeup:s0
+
+# USB-C port state (power role, partner) under the Qualcomm UCSI driver: the qcom policy only
+# labels the older pmi8998 path, so the USB HAL, system_server and PocketDS Parts (USB power guard)
+# were denied reading it (seen every 5 s while permissive)
+genfscon sysfs /devices/platform/soc/soc:qcom,pmic_glink/soc:qcom,pmic_glink:qcom,ucsi/typec u:object_r:sysfs_typec:s0
