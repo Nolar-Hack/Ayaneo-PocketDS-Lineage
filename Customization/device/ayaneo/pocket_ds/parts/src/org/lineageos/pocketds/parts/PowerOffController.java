@@ -45,6 +45,9 @@ class PowerOffController {
     private final Handler mHandler = new Handler(Looper.getMainLooper());
     private final AlarmManager mAlarms;
     private boolean mLidClosed;
+    // When the screen went off / the lid was closed (elapsed realtime), for the game time limit.
+    private long mScreenOffAt;
+    private long mLidClosedAt;
 
     PowerOffController(Context context) {
         mContext = context;
@@ -60,6 +63,7 @@ class PowerOffController {
             public void onReceive(Context context, Intent intent) {
                 mAlarms.cancel(mScreenAlarm);
                 if (Intent.ACTION_SCREEN_OFF.equals(intent.getAction())) {
+                    mScreenOffAt = SystemClock.elapsedRealtime();
                     schedule(mScreenAlarm, "pocketds-poweroff-screen",
                             PartsPrefs.POWEROFF_SCREEN_MIN);
                 }
@@ -100,6 +104,7 @@ class PowerOffController {
                 mLidClosed = closed;
                 mAlarms.cancel(mLidAlarm);
                 if (closed) {
+                    mLidClosedAt = SystemClock.elapsedRealtime();
                     schedule(mLidAlarm, "pocketds-poweroff-lid", PartsPrefs.POWEROFF_LID_MIN);
                 }
             }
@@ -113,7 +118,7 @@ class PowerOffController {
         @Override
         public void onAlarm() {
             if (!mLidClosed) return;
-            if (keepGame("lid closed", this, "pocketds-poweroff-lid")) return;
+            if (keepGame("lid closed", this, "pocketds-poweroff-lid", mLidClosedAt)) return;
             // Lid closed: power off even when plugged, unless data is going through the USB port.
             // A closed lid with nothing happening on the port only drains the battery.
             new Thread(() -> {
@@ -135,7 +140,9 @@ class PowerOffController {
         @Override
         public void onAlarm() {
             if (!mContext.getSystemService(PowerManager.class).isInteractive()) {
-                if (keepGame("screen off", this, "pocketds-poweroff-screen")) return;
+                if (keepGame("screen off", this, "pocketds-poweroff-screen", mScreenOffAt)) {
+                    return;
+                }
                 powerOff("screen off");
             }
         }
@@ -144,9 +151,12 @@ class PowerOffController {
     /**
      * A game is open (the app in front is a game): the console stays asleep with the game paused,
      * as on a Switch, instead of losing the game by powering off; it is checked again every 30
-     * minutes and powered off once the battery is under 10 %. True when the power off is held.
+     * minutes and powered off once the battery is under 10 %, or once it has been asleep for the
+     * time limit of the settings (counted from the screen off / lid close). True when the power
+     * off is held.
      */
-    private boolean keepGame(String why, AlarmManager.OnAlarmListener alarm, String tag) {
+    private boolean keepGame(String why, AlarmManager.OnAlarmListener alarm, String tag,
+            long asleepSince) {
         if (!mPrefs.getBoolean(PartsPrefs.POWEROFF_KEEP_GAME, true)) return false;
         final ForegroundWatcher watcher = ForegroundWatcher.get();
         final android.app.ActivityManager.RunningTaskInfo app =
@@ -159,10 +169,20 @@ class PowerOffController {
             Log.i(TAG, "Game " + pkg + " open but battery at " + level + " %: powering off");
             return false;
         }
+        long nextCheck = GAME_CHECK_MS;
+        final int maxMinutes = PartsPrefs.getInt(mPrefs, PartsPrefs.POWEROFF_GAME_MAX_MIN, 0);
+        if (maxMinutes > 0 && asleepSince > 0) {
+            final long left = asleepSince + maxMinutes * 60_000L - SystemClock.elapsedRealtime();
+            if (left <= 0) {
+                Log.i(TAG, "Game " + pkg + " asleep for " + maxMinutes + " min: powering off");
+                return false;
+            }
+            nextCheck = Math.min(nextCheck, left);
+        }
         Log.i(TAG, "Power off (" + why + ") held: game " + pkg + " open, battery " + level
-                + " %, checked again in 30 min");
+                + " %, checked again in " + nextCheck / 60_000 + " min");
         mAlarms.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                SystemClock.elapsedRealtime() + GAME_CHECK_MS, tag, alarm, mHandler);
+                SystemClock.elapsedRealtime() + nextCheck, tag, alarm, mHandler);
         return true;
     }
 

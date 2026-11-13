@@ -44,6 +44,8 @@ final class PartsPrefs {
     static final String POWEROFF_SCREEN_MIN = "poweroff_screen_min";
     static final String POWEROFF_ONLY_ON_BATTERY = "poweroff_only_on_battery";
     static final String POWEROFF_KEEP_GAME = "poweroff_keep_game";
+    /** A game kept asleep is powered off anyway after this many minutes asleep (0 = never). */
+    static final String POWEROFF_GAME_MAX_MIN = "poweroff_game_max_min";
 
     // Performance: profile in use (0 ECO .. 4 Max) and the fan mode ("profile" = the one of the
     // profile, else a PerformanceProfiles.FAN_* value).

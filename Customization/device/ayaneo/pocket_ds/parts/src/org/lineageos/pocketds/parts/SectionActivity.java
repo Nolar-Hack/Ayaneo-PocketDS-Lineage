@@ -652,6 +652,10 @@ public class SectionActivity extends Activity {
         ui.switchRow(card, "🎮", Ui.BLUE, "Sleep during a game",
                 "A game open: sleep and resume it, power off under 10 %",
                 PartsPrefs.POWEROFF_KEEP_GAME, true);
+        ui.choiceRow(card, "⏳", Ui.ORANGE, "Power off the game anyway after",
+                PartsPrefs.POWEROFF_GAME_MAX_MIN,
+                new String[] {"Never", "30 min", "1 h", "2 h", "4 h", "8 h"},
+                new String[] {"0", "30", "60", "120", "240", "480"}, "0");
         ui.note(page, "Lid closed: powers off even when plugged in, unless data is moving over USB "
                 + "(checked again every 5 min) or a game is open. Lid open and charging: never "
                 + "powers off. Opening the lid or waking the screen cancels the countdown.");
