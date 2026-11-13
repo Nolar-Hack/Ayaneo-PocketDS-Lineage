@@ -27,8 +27,13 @@ final class ChargeLimitController {
     static final String PREF_ON = "charge_limit_on";
     static final String PREF_LEVEL = "charge_limit_level";
     static final String PREF_STATE = "charge_limit_state";
-    /** While a game is in front and the console is plugged in, it runs on the cable. */
+    /** First version: on = bypass while a game is in front (read when PREF_BYPASS is unset). */
     static final String PREF_GAME_BYPASS = "charge_game_bypass";
+    /**
+     * Run on the cable, battery resting, while plugged in: "off", "games" (a game in front) or
+     * "always".
+     */
+    static final String PREF_BYPASS = "charge_bypass";
     /** Under this level the battery is charged even while a game is in front. */
     static final int BYPASS_FROM = 50;
     private static ChargeLimitController sInstance;
@@ -37,11 +42,15 @@ final class ChargeLimitController {
     private static final String BATTERY = "/sys/class/power_supply/battery/";
     private static final int HYSTERESIS = 3;
     private static final long CHECK_DELAY_MS = 25_000;
+    /** Above this current (µA) into the battery it is still being charged. */
+    private static final long CHARGING_MICRO_AMPS = 50_000;
 
     private final Context mContext;
     private final SharedPreferences mPrefs;
     private final Handler mMain = new Handler(Looper.getMainLooper());
     private boolean mHeld;
+    /** Playing on the charger: the battery rests (shown on the LED, see LedController). */
+    private static volatile boolean sBypassing;
 
     ChargeLimitController(Context context) {
         mContext = context;
@@ -67,7 +76,8 @@ final class ChargeLimitController {
         evaluate(mContext.registerReceiver(receiver,
                 new IntentFilter(Intent.ACTION_BATTERY_CHANGED)));
         mPrefs.registerOnSharedPreferenceChangeListener((prefs, key) -> {
-            if (PREF_ON.equals(key) || PREF_LEVEL.equals(key) || PREF_GAME_BYPASS.equals(key)) {
+            if (PREF_ON.equals(key) || PREF_LEVEL.equals(key) || PREF_GAME_BYPASS.equals(key)
+                    || PREF_BYPASS.equals(key)) {
                 evaluate(mContext.registerReceiver(null,
                         new IntentFilter(Intent.ACTION_BATTERY_CHANGED)));
             }
@@ -81,11 +91,18 @@ final class ChargeLimitController {
         final int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, 0) * 100
                 / Math.max(1, battery.getIntExtra(BatteryManager.EXTRA_SCALE, 100));
         final int limit = limit();
-        // Playing plugged in: the charger powers the console and the battery rests (measured with
-        // a PD charger and a game: -17 mA from the battery, against +800 mA of charge otherwise).
-        final boolean bypass = mPrefs.getBoolean(PREF_GAME_BYPASS, false)
-                && PerfHints.gameInFront()
-                && level >= (mHeld ? BYPASS_FROM - HYSTERESIS : BYPASS_FROM);
+        // Plugged in: the charger powers the console and the battery rests (measured with a PD
+        // charger and a game: -17 mA from the battery, against +800 mA of charge otherwise).
+        // While playing it starts at 50 %; always: at the level of the charge limit, so that
+        // the battery is still charged up to it.
+        final String mode = bypassMode(mPrefs);
+        final boolean always = "always".equals(mode);
+        final int from = always ? limit : BYPASS_FROM;
+        final boolean bypass = (always || ("games".equals(mode) && PerfHints.gameInFront()))
+                && level >= (mHeld ? from - HYSTERESIS : from);
+        final boolean wasBypassing = sBypassing;
+        sBypassing = plugged && bypass;
+        if (wasBypassing != sBypassing) LedController.apply(mContext, false);
         if (!plugged || (!on && !bypass)) {
             if (mHeld || mPrefs.getBoolean(PREF_HELD, false)) release();
             if (!on) mPrefs.edit().remove(PREF_STATE).apply();
@@ -97,6 +114,16 @@ final class ChargeLimitController {
         } else if (mHeld && !overLimit && !bypass) {
             release();
         }
+    }
+
+    static String bypassMode(SharedPreferences prefs) {
+        final String mode = prefs.getString(PREF_BYPASS, null);
+        if (mode != null) return mode;
+        return prefs.getBoolean(PREF_GAME_BYPASS, false) ? "games" : "off";
+    }
+
+    static boolean bypassing() {
+        return sBypassing;
     }
 
     private int limit() {
@@ -140,9 +167,13 @@ final class ChargeLimitController {
                 new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
         if (battery == null) return;
         final int status = battery.getIntExtra(BatteryManager.EXTRA_STATUS, 0);
-        final boolean stopped = status != BatteryManager.BATTERY_STATUS_CHARGING;
-        Log.i(TAG, "limit reached, status " + status + (stopped ? ": charging stopped"
-                : ": still charging"));
+        // Android keeps saying "charging" while restrict_chg holds the charger: the current of
+        // the battery tells (measured: -40 to -80 mA held, against +800 mA charging).
+        final long microAmps = PerfOverlayController.readLong(BATTERY + "current_now", 0);
+        final boolean stopped = status != BatteryManager.BATTERY_STATUS_CHARGING
+                || microAmps < CHARGING_MICRO_AMPS;
+        Log.i(TAG, "limit reached, status " + status + ", " + microAmps / 1000 + " mA"
+                + (stopped ? ": charging stopped" : ": still charging"));
         mPrefs.edit().putString(PREF_STATE, stopped ? "Working: charging stopped at the limit"
                 : "The charger of this console keeps charging past the limit").apply();
     }

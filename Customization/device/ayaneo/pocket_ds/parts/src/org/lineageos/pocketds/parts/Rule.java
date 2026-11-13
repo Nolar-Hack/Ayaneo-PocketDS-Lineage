@@ -63,15 +63,17 @@ final class Rule {
     static final String A_SOUND = "sound_mode";              // 2 normal / 1 vibrate / 0 silent
     static final String A_FORCE_STOP = "force_stop";         // packages (comma separated)
     static final String A_RESTRICT_BG = "restrict_background"; // packages (comma separated)
+    static final String A_LED = "led_color";                 // RRGGBB, 000000 = off
     static final String[] ACTIONS = {A_WIFI, A_BLUETOOTH, A_LOCATION, A_SYNC, A_BATTERY_SAVER,
         A_SMART_PIXELS, A_DARK_MODE, A_ROTATION, A_REFRESH, A_SCREEN_MODE, A_TIMEOUT, A_BRIGHTNESS,
-        A_SOUND, A_FORCE_STOP, A_RESTRICT_BG};
+        A_SOUND, A_FORCE_STOP, A_RESTRICT_BG, A_LED};
     static final String[] ACTION_LABELS = {"Wi-Fi", "Bluetooth", "Location", "Account sync",
         "Battery Saver", "Smart Pixels", "Dark theme", "Auto-rotate", "Refresh rate", "Screens",
-        "Screen timeout", "Brightness", "Sound mode", "Stop apps", "Restrict apps in background"};
+        "Screen timeout", "Brightness", "Sound mode", "Stop apps", "Restrict apps in background",
+        "Colour of the USB-C LED"};
     static final String[] ACTION_ICONS = {"📶", "🟦", "📍",
         "🔄", "🔋", "✨", "🌑", "🔃", "📺",
-        "🖥️", "⏱️", "🔆", "🔔", "⛔", "🚧"};
+        "🖥️", "⏱️", "🔆", "🔔", "⛔", "🚧", "💡"};
 
     // Looks of a rule
     static final String[] ICONS = {"⚡", "🌙", "🔋", "🎮",

@@ -423,6 +423,7 @@ public class RuleEditorActivity extends Activity {
             case Rule.A_TIMEOUT: return "30000";
             case Rule.A_BRIGHTNESS: return "30";
             case Rule.A_SOUND: return "1";
+            case Rule.A_LED: return LedController.COLORS[0];
             case Rule.A_FORCE_STOP:
             case Rule.A_RESTRICT_BG: return "";
             default: return "off";
@@ -443,6 +444,8 @@ public class RuleEditorActivity extends Activity {
             case Rule.A_SOUND:
                 return Rule.label(new String[] {"2", "1", "0"}, new String[] {"Normal",
                     "Vibrate", "Silent"}, action.value);
+            case Rule.A_LED:
+                return LedController.colorLabel(action.value);
             case Rule.A_FORCE_STOP:
             case Rule.A_RESTRICT_BG: {
                 final int count = action.value.isEmpty() ? 0 : action.value.split(",").length;
@@ -497,6 +500,10 @@ public class RuleEditorActivity extends Activity {
             case Rule.A_SOUND:
                 choose("Sound mode", new String[] {"Normal", "Vibrate", "Silent"},
                         new String[] {"2", "1", "0"}, action);
+                break;
+            case Rule.A_LED:
+                choose("Colour of the USB-C LED", LedController.COLOR_LABELS,
+                        LedController.COLORS, action);
                 break;
             case Rule.A_BRIGHTNESS:
                 mUi.sliderDialog("Brightness", " %", 1, 100, number(action.value, 30), value -> {

@@ -138,6 +138,8 @@ final class ActionRunner {
                     audio.setRingerModeInternal(Integer.parseInt(action.value));
                     return Integer.toString(was);
                 }
+                case Rule.A_LED:
+                    return LedController.setOverride(context, action.value);
                 case Rule.A_FORCE_STOP: {
                     final ActivityManager manager = context.getSystemService(
                             ActivityManager.class);
@@ -233,6 +235,9 @@ final class ActionRunner {
                 case Rule.A_SOUND:
                     context.getSystemService(AudioManager.class).setRingerModeInternal(
                             Integer.parseInt(was));
+                    break;
+                case Rule.A_LED:
+                    LedController.setOverride(context, was);
                     break;
                 case Rule.A_RESTRICT_BG: {
                     final AppOpsManager ops = context.getSystemService(AppOpsManager.class);

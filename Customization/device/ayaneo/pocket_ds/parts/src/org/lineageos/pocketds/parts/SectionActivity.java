@@ -406,6 +406,9 @@ public class SectionActivity extends Activity {
         ui.hero(page, "🔋", Ui.GREEN, "Battery & radios",
                 "Turns Wi-Fi and Bluetooth off when you are not using the console");
 
+        batteryInfo(ui, page);
+        chargingLed(ui, page);
+
         ui.section(page, "After the screen goes off");
         final LinearLayout screen = ui.card(page);
         ui.choiceRow(screen, "⏱️", Ui.BLUE, "Turn off after",
@@ -432,10 +435,17 @@ public class SectionActivity extends Activity {
                 null);
         ui.note(page, chargeState != null ? chargeState
                 : "Charging restarts 3 points under the limit.");
-        ui.switchRow(charging, "🎮", Ui.PURPLE, "Play on the charger",
-                "While a game is in front and the battery is above 50 %, the console runs on the "
-                + "charger and the battery is not charged. Needs a fast (USB-C PD) charger",
-                ChargeLimitController.PREF_GAME_BYPASS, false);
+        final SharedPreferences chargePrefs = PartsPrefs.get(this);
+        final Ui.Row bypassRow = ui.valueChoiceRow(charging, "🔌", Ui.PURPLE,
+                "Run on the charger",
+                new String[] {"Off", "While playing", "Always"},
+                new String[] {"off", "games", "always"},
+                () -> ChargeLimitController.bypassMode(chargePrefs),
+                mode -> chargePrefs.edit().putString(ChargeLimitController.PREF_BYPASS, mode)
+                        .apply());
+        ui.setSummary(bypassRow, "The console runs on the charger and the battery rests "
+                + "instead of charging: while playing above 50 %, always above the level of "
+                + "Charge up to. Needs a fast (USB-C PD) charger");
         ui.switchRow(charging, "🔌", Ui.BLUE, "Never power the USB port",
                 "Stops the console from draining its battery into a cable that is plugged "
                 + "to nothing, for example a computer that is off",
@@ -450,6 +460,181 @@ public class SectionActivity extends Activity {
                 PartsPrefs.BT_IDLE_OFF_MIN, DELAYS, DELAY_VALUES, "0");
         ui.note(page, "Google's Nearby keeps scanning over Bluetooth, which stops the console "
                 + "from sleeping. This turns Bluetooth off when nothing is connected.");
+    }
+
+    private static final String POWER_SUPPLY = "/sys/class/power_supply/battery/";
+
+    /** Level, state, temperature, voltage, wear and cycles of the battery. */
+    private void batteryInfo(Ui ui, LinearLayout page) {
+        ui.section(page, "Battery");
+        final LinearLayout card = ui.card(page);
+        final Intent battery = registerReceiver(null,
+                new android.content.IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        int level = -1;
+        int tempTenths = 0;
+        int health = android.os.BatteryManager.BATTERY_HEALTH_UNKNOWN;
+        boolean plugged = false;
+        if (battery != null) {
+            final int raw = battery.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1);
+            final int scale = battery.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100);
+            if (raw >= 0 && scale > 0) level = raw * 100 / scale;
+            tempTenths = battery.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0);
+            health = battery.getIntExtra(android.os.BatteryManager.EXTRA_HEALTH, health);
+            plugged = battery.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0) != 0;
+        }
+        final BatteryInfo info = BatteryInfo.read();
+        String state = info.timeLeft() != null ? info.timeLeft() + " left"
+                : info.state() != null ? info.state() : plugged ? "plugged in" : "on battery";
+        state = Character.toUpperCase(state.charAt(0)) + state.substring(1) + " · "
+                + info.signedWatts();
+        ui.row(card, "🔋", Ui.GREEN, level < 0 ? "Battery" : level + " %", state);
+        ui.progressBar(card, level, level <= 15 ? Ui.RED : level <= 30 ? Ui.ORANGE : Ui.GREEN);
+
+        final long microVolts = PerfOverlayController.readLong(POWER_SUPPLY + "voltage_now", 0);
+        ui.row(card, "🌡️", Ui.ORANGE, "Temperature and voltage", String.format(
+                java.util.Locale.US, "%.1f °C · %.2f V", tempTenths / 10f, microVolts / 1e6));
+
+        final long full = PerfOverlayController.readLong(POWER_SUPPLY + "charge_full", 0);
+        final long design = PerfOverlayController.readLong(POWER_SUPPLY + "charge_full_design", 0);
+        String wear = healthLabel(health);
+        if (full > 0 && design > 0) {
+            wear += String.format(java.util.Locale.US, " · %d %% of its capacity when new "
+                    + "(%d of %d mAh)", Math.round(full * 100.0 / design), full / 1000,
+                    design / 1000);
+        }
+        ui.row(card, "❤️", Ui.RED, "Health", wear);
+        final long cycles = PerfOverlayController.readLong(POWER_SUPPLY + "cycle_count", -1);
+        if (cycles >= 0) {
+            ui.row(card, "🔁", Ui.PURPLE, "Charge cycles", Long.toString(cycles));
+        }
+    }
+
+    private static String healthLabel(int health) {
+        switch (health) {
+            case android.os.BatteryManager.BATTERY_HEALTH_GOOD: return "Good";
+            case android.os.BatteryManager.BATTERY_HEALTH_OVERHEAT: return "Too hot";
+            case android.os.BatteryManager.BATTERY_HEALTH_COLD: return "Too cold";
+            case android.os.BatteryManager.BATTERY_HEALTH_DEAD: return "Worn out";
+            case android.os.BatteryManager.BATTERY_HEALTH_OVER_VOLTAGE: return "Over voltage";
+            default: return "Unknown";
+        }
+    }
+
+    /** The LED next to the USB-C port: brightness, battery level, charging, night. */
+    private void chargingLed(Ui ui, LinearLayout page) {
+        final SharedPreferences prefs = PartsPrefs.get(this);
+        ui.section(page, "LED of the charging port");
+        final LinearLayout card = ui.card(page);
+        ui.sliderRow(card, "💡", Ui.PURPLE, "Brightness", LedController.brightness(this), 100,
+                value -> LedController.setBrightness(this, value));
+        ui.choiceRow(card, "🔋", Ui.GREEN, "Show the battery level", LedController.PREF_BATTERY,
+                new String[] {"Never", "While charging", "Always"},
+                new String[] {"off", "charging", "always"}, LedController.DEFAULT_BATTERY);
+        ui.switchRow(card, "🌬️", Ui.TEAL, "Breathe while charging",
+                "Steady once charged", LedController.PREF_BREATH, LedController.DEFAULT_BREATH);
+        final boolean gradient = prefs.getBoolean(LedController.PREF_GRADIENT, false);
+        ui.valueSwitchRow(card, "🌈", Ui.ORANGE, "Gradient",
+                "From red to green with the level, instead of the steps", () -> gradient,
+                on -> {
+                    prefs.edit().putBoolean(LedController.PREF_GRADIENT, on).apply();
+                    recreate();
+                });
+        final String[][] steps = LedController.steps(this);
+        for (int i = 0; i < steps.length; i++) {
+            final int index = i;
+            final int from = i == 0 ? 0 : Integer.parseInt(steps[i - 1][0]) + 1;
+            final Ui.Row row = ui.actionRow(card, "●", ledColor(steps[i][1]),
+                    from + " to " + steps[i][0] + " %", LedController.colorLabel(steps[i][1]),
+                    () -> editLedStep(ui, steps, index));
+            if (gradient) ui.setEnabledDeep(row.view, false);
+        }
+
+        ui.section(page, "LED while charging");
+        final LinearLayout charge = ui.card(page);
+        ledColorRow(ui, charge, "✅", Ui.GREEN, "Charge complete", "At 100 %, or at the charge limit",
+                LedController.PREF_FULL, LedController.DEFAULT_FULL);
+        ledColorRow(ui, charge, "🔌", Ui.PURPLE, "Running on the charger",
+                "The battery rests, see Run on the charger below",
+                LedController.PREF_BYPASS, "");
+
+        ui.section(page, "LED at night");
+        final LinearLayout night = ui.card(page);
+        final Ui.Row nightSwitch = ui.switchRow(night, "🌙", Ui.BLUE, "Night mode",
+                "Lower brightness between two times", LedController.PREF_NIGHT, false);
+        final Rule.TimeWindow window = LedController.nightWindow(this);
+        final Ui.Row hours = ui.actionRow(night, "⏰", Ui.PURPLE, "Hours", window.describe(),
+                () -> new android.app.TimePickerDialog(this, (v1, h1, m1) -> {
+                    window.startMin = h1 * 60 + m1;
+                    new android.app.TimePickerDialog(this, (v2, h2, m2) -> {
+                        window.endMin = h2 * 60 + m2;
+                        prefs.edit().putString(LedController.PREF_NIGHT_WINDOW,
+                                window.encode()).apply();
+                        recreate();
+                    }, window.endMin / 60, window.endMin % 60, true).show();
+                }, window.startMin / 60, window.startMin % 60, true).show());
+        final Ui.Row level = ui.valueChoiceRow(night, "💡", Ui.ORANGE, "Brightness at night",
+                new String[] {"Off", "5 %", "10 %", "25 %", "50 %"},
+                new String[] {"0", "5", "10", "25", "50"},
+                () -> Integer.toString(prefs.getInt(LedController.PREF_NIGHT_LEVEL, 0)),
+                value -> prefs.edit().putInt(LedController.PREF_NIGHT_LEVEL,
+                        Integer.parseInt(value)).apply());
+        ui.dependOn(nightSwitch, hours.view, level.view);
+        ui.note(page, "Otherwise the LED lights up white when you touch the console; 0 % keeps "
+                + "it off. Notification colours are set per app in Settings > Notifications. "
+                + "The colours of the automation rules use the same brightness.");
+    }
+
+    private static int ledColor(String color) {
+        try {
+            final int rgb = Integer.parseInt(color, 16);
+            return rgb == 0 ? Ui.GREY : 0xFF000000 | rgb;
+        } catch (NumberFormatException e) {
+            return Ui.GREY;
+        }
+    }
+
+    /** A colour picked in a list, "not used" first. */
+    private void ledColorRow(Ui ui, LinearLayout card, String icon, int color, String title,
+            String summary, String key, String fallback) {
+        final SharedPreferences prefs = PartsPrefs.get(this);
+        final String current = prefs.getString(key, fallback);
+        final Ui.Row row = ui.actionRow(card, icon, color, title,
+                LedController.colorLabel(current) + " · " + summary, null);
+        row.view.setOnClickListener(v -> new android.app.AlertDialog.Builder(this)
+                .setTitle(title)
+                .setSingleChoiceItems(LedController.OPTIONAL_LABELS,
+                        Math.max(0, Rule.index(LedController.OPTIONAL_COLORS,
+                                prefs.getString(key, fallback))), (d, which) -> {
+                            d.dismiss();
+                            prefs.edit().putString(key, LedController.OPTIONAL_COLORS[which])
+                                    .apply();
+                            recreate();
+                        })
+                .setNegativeButton("Cancel", null).show());
+    }
+
+    private void editLedStep(Ui ui, String[][] steps, int index) {
+        int checked = Math.max(0, Rule.index(LedController.COLORS, steps[index][1]));
+        new android.app.AlertDialog.Builder(this).setTitle("Colour")
+                .setSingleChoiceItems(LedController.COLOR_LABELS, checked, (d, which) -> {
+                    d.dismiss();
+                    steps[index][1] = LedController.COLORS[which];
+                    if (index == steps.length - 1) {
+                        // The last step always goes up to 100 %.
+                        LedController.setSteps(this, steps);
+                        recreate();
+                        return;
+                    }
+                    final int min = index == 0 ? 1 : Integer.parseInt(steps[index - 1][0]) + 1;
+                    final int max = Integer.parseInt(steps[index + 1][0]) - 1;
+                    ui.sliderDialog("Up to", " %", min, Math.max(min, max),
+                            Integer.parseInt(steps[index][0]), value -> {
+                                steps[index][0] = Integer.toString(value);
+                                LedController.setSteps(this, steps);
+                                recreate();
+                            });
+                })
+                .setNegativeButton("Cancel", null).show();
     }
 
     private void powerOff(Ui ui, LinearLayout page) {

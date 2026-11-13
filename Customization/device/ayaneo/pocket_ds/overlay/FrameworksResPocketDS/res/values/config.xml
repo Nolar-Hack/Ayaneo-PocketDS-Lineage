@@ -61,4 +61,6 @@
          the main screen has a navigation bar, whose gesture handler it needs. Without this
          Android 17 has no navigation bar on the default display and no gesture works. -->
     <bool name="config_showNavigationBar">true</bool>
+    <!-- Notifications can light the LED next to the USB-C port (per app colours in Settings). -->
+    <bool name="config_intrusiveNotificationLed">true</bool>
 </resources>
