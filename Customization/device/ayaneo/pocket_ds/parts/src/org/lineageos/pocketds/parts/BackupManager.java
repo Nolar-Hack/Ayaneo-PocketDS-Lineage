@@ -39,7 +39,8 @@ final class BackupManager {
     private BackupManager() {}
 
     private static boolean skip(String key) {
-        return key.startsWith("rule_saved_") || key.equals("obtainium_pack_copied");
+        return key.startsWith("rule_saved_") || key.equals("obtainium_pack_copied")
+                || key.equals("obtainium_pack_loaded");
     }
 
     /** Writes the backup in Downloads/PocketDS and returns its name. */

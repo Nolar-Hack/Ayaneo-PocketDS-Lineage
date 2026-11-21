@@ -46,6 +46,7 @@ public class PocketDSApplication extends Application {
         start("Led", () -> new LedController(this).start());
         start("Updates", () -> UpdateJob.schedule(this));
         start("ObtainiumPack", () -> ObtainiumPack.copyOnce(this));
+        start("Rumble", () -> OverlayWindow.rumbleStrength(PartsPrefs.get(this)));
     }
 
     private static void start(String name, Runnable controller) {

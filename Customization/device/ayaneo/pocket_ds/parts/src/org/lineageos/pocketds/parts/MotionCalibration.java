@@ -231,8 +231,19 @@ final class MotionCalibration implements SensorEventListener {
     }
 
     private static String su(String command) throws Exception {
-        final Process process = new ProcessBuilder("su", "-c", command)
-                .redirectErrorStream(true).start();
+        // KernelSU's su (no file: its kernel hook catches /system/bin/su). Seen on the console: the
+        // start sometimes fails ("Cannot run program su: error=13") and works right after.
+        Process started = null;
+        for (int attempt = 0; started == null; attempt++) {
+            try {
+                started = new ProcessBuilder("/system/bin/su", "-c", command)
+                        .redirectErrorStream(true).start();
+            } catch (java.io.IOException e) {
+                if (attempt >= 4) throw e;
+                Thread.sleep(300);
+            }
+        }
+        final Process process = started;
         process.getOutputStream().close();
         final ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (InputStream in = process.getInputStream()) {

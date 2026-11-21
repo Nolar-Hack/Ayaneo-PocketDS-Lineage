@@ -117,6 +117,18 @@ JAVA_BIN="$(ls -d "$SRC_DIR"/prebuilts/jdk/jdk*/linux-x86/bin 2>/dev/null | sort
 export PATH="$SRC_DIR/out/host/linux-x86/bin:$JAVA_BIN:$PATH"
 command -v java >/dev/null || { echo "java not found (looked in $JAVA_BIN)" >&2; exit 1; }
 
+# ota_from_target_files prints warnings that are expected on this console and hide the real ones:
+#  - it reads <PARTITION>/etc/build.prop first, then <PARTITION>/build.prop, and warns about the
+#    first even when the second is there; it also looks for odm_dlkm, a partition the console
+#    does not have (a partition really missing its build.prop still shows: "for partition <name>");
+#  - it reads the build props of boot (GKI: no ramdisk, "empty archive") and init_boot (toybox cpio
+#    cannot create the dev/* nodes without root): only used for a timestamp check.
+# Its exit status is kept (pipefail).
+OTA_NOISE='WARNING : Failed to read [A-Z_]+/(etc/)?build\.prop$|WARNING : Failed to read build\.prop for partition odm_dlkm$|Unable to get boot image build props: Failed to run command .*cpio|^cpio: (empty archive|dev/[^:]+: Operation not permitted)$|^$'
+ota_from_target_files() {
+    command ota_from_target_files "$@" 2>&1 | { grep -v -E "$OTA_NOISE" || true; }
+}
+
 if [[ "$FULL_PACKAGE" == true ]]; then
     echo "== full package (key $KEY)"
     ota_from_target_files -k "$KEY" "$WORK/new.zip" "$OTA_DIR/Full/$NAME-full.zip"
@@ -179,9 +191,10 @@ else
     export BUILD_ID="$(meta "$INC" post-build-incremental)"   # --incremental-only
 fi
 [[ -f "$INC" ]] && export FROM_ID="$(meta "$INC" pre-build-incremental)" || export FROM_ID=""
-# every incremental package of this version, with the build it starts from
+# every incremental package of this build, with the build it starts from (only this build: a
+# version built again keeps its number, and the packages of its earlier build would match first)
 INC_LIST=""
-for f in "$OTA_DIR"/Incremental/PocketDS-"$VERSION"-*-incremental.zip; do
+for f in "$OTA_DIR"/Incremental/"$NAME"-*incremental.zip; do
     [[ -f "$f" ]] && INC_LIST+="$f|$(meta "$f" pre-build-incremental)"$'\n'
 done
 export INC_LIST
@@ -234,16 +247,17 @@ if [[ "$PROMOTE" == true ]]; then
         [[ "$keep" == *" $v "* ]] || { echo "== History: dropping $v"; rm -rf "$d"; }
     done
 fi
-# --- Full and Incremental: only the packages of this version stay (the older ones are on their
-# GitHub release, or were never published). A build without a complete package (--incremental-only)
-# keeps the newest complete package of an older version, for a fresh install.
+# --- Full and Incremental: only the packages of this build stay (the older ones are on their
+# GitHub release, or were never published; an earlier build of the same version is replaced).
+# A build without a complete package (--incremental-only) keeps the newest complete package of an
+# older build, for a fresh install.
 if [[ "$PROMOTE" == true ]]; then
     keep_full=""
     [[ -f "$FULL" ]] || keep_full="$(ls -t "$OTA_DIR"/Full/*-full.zip 2>/dev/null | head -1 || true)"
     for f in "$OTA_DIR"/Full/* "$OTA_DIR"/Incremental/*; do
         [[ -f "$f" ]] || continue
         b="$(basename "$f")"
-        [[ "$b" == PocketDS-"$VERSION"-* ]] && continue
+        [[ "$b" == "$NAME"-* ]] && continue
         [[ -n "$keep_full" && ( "$f" == "$keep_full" || "$f" == "$keep_full.sha256sum" ) ]] && continue
         echo "== dropping $b"
         rm -f "$f"

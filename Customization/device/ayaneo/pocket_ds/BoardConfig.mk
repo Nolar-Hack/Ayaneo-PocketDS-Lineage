@@ -119,9 +119,9 @@ BOARD_KERNEL_CMDLINE := \
     qcom_geni_serial.con_enabled=0 \
     nosoftlockup
 
-# Bring-up builds (WITH_ADB_INSECURE): turn a kernel panic or a task blocked for
-# 120 s into a warm reboot, so the log survives in pstore (ramoops) and can be
-# read from recovery. TODO: drop once the device boots.
+# Debug builds (--bringup, WITH_ADB_INSECURE): turn a kernel panic or a task blocked
+# for 120 s into a warm reboot, so the log survives in pstore (ramoops) and can be
+# read from recovery. Not in the final builds.
 ifeq ($(WITH_ADB_INSECURE),true)
 BOARD_KERNEL_CMDLINE += panic=5 hung_task_panic=1 hung_task_timeout_secs=120
 endif
@@ -132,8 +132,9 @@ BOARD_BOOTCONFIG := \
     androidboot.memcg=1 \
     androidboot.usbcontroller=a600000.dwc3
 
-# Bring-up: vendor sepolicy is rebuilt from source; boot permissive so denials
-# cannot bootloop the first build. userdebug/eng only. TODO: remove.
+# SELinux permissive, kept on purpose (decision of 2026-10-20): the vendor sepolicy is
+# rebuilt from source and our services have no domain of their own yet (see the
+# TODO(enforcing) lines of the init .rc files). Honoured by userdebug/eng builds only.
 BOARD_BOOTCONFIG += androidboot.selinux=permissive
 
 # Modules: shipped byte-identical to stock (no stripping — zram/zsmalloc carry

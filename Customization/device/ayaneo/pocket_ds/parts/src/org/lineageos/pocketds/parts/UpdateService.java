@@ -14,6 +14,7 @@ import android.content.pm.ServiceInfo;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.os.UpdateEngine;
 import android.os.UpdateEngineCallback;
 import android.util.Log;
@@ -22,6 +23,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Downloads the package of the newest release and has update_engine install it in the other slot.
@@ -128,11 +130,29 @@ public class UpdateService extends Service {
         final UpdateEngine engine = new UpdateEngine();
         final String[] result = {null};
         final CountDownLatch done = new CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicBoolean rebound =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        // Time of the last call of update_engine, to tell a silence from a long step.
+        final java.util.concurrent.atomic.AtomicLong news =
+                new java.util.concurrent.atomic.AtomicLong(SystemClock.elapsedRealtime());
         try {
             final Updates.Payload payload = Updates.payload(file);
-            engine.bind(new UpdateEngineCallback() {
+            final UpdateEngineCallback callback = new UpdateEngineCallback() {
                 @Override
                 public void onStatusUpdate(int status, float percent) {
+                    news.set(SystemClock.elapsedRealtime());
+                    if (status == UpdateEngine.UpdateStatusConstants.UPDATED_NEED_REBOOT) {
+                        // Done: the completion call may never come (seen: the app stuck at
+                        // "Finalizing 22 %" while update_engine had finished with success).
+                        done.countDown();
+                        return;
+                    }
+                    if (rebound.get() && status == UpdateEngine.UpdateStatusConstants.IDLE) {
+                        // Bound again and the engine is idle: the update stopped without telling.
+                        result[0] = "Installation stopped, try again";
+                        done.countDown();
+                        return;
+                    }
                     Updates.sPercent = (int) (percent * 100);
                     // update_engine: 3 downloading/writing, 4 verifying, 5 finalizing, 6 done
                     Updates.sMessage = status == 4 ? "Verifying the new system"
@@ -148,10 +168,22 @@ public class UpdateService extends Service {
                     }
                     done.countDown();
                 }
-            }, new Handler(Looper.getMainLooper()));
+            };
+            final Handler main = new Handler(Looper.getMainLooper());
+            engine.bind(callback, main);
             engine.applyPayload("file://" + file.getAbsolutePath(), payload.offset, payload.size,
                     payload.headers);
-            done.await();
+            // No news for a minute: bind again, update_engine then sends its current status.
+            while (!done.await(15, TimeUnit.SECONDS)) {
+                if (SystemClock.elapsedRealtime() - news.get() < 60_000) continue;
+                news.set(SystemClock.elapsedRealtime());
+                try {
+                    engine.unbind();
+                } catch (RuntimeException ignored) {
+                }
+                rebound.set(true);
+                engine.bind(callback, main);
+            }
         } catch (Exception e) {
             Log.w(TAG, "apply failed", e);
             result[0] = "Installation failed: " + e.getMessage();

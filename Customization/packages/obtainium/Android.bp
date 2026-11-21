@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: The LineageOS Project
 // SPDX-License-Identifier: Apache-2.0
 //
-// Obtainium v1.7.1 (https://github.com/ImranR98/Obtainium, arm64-v8a "release" build), installed
+// Obtainium v1.7.4 (https://github.com/ImranR98/Obtainium, arm64-v8a "release" build), installed
 // unmodified and presigned with the upstream key, so Obtainium keeps updating itself over the
-// system copy. sha256 04dfd02c56dae8d5271d2d402977e1b07c8eeffb313df054a13e71b75b8b8a26.
-// The emulation app list (RJNY/Obtainium-Emulation-Pack) is copied to Downloads by PocketDS Extra.
+// system copy. sha256 f9216f721a7713b75929e0806bc18586f8fcf7328fbbff99b6aef1debb9eef80.
+// The emulation app list (RJNY/Obtainium-Emulation-Pack) is loaded into it on the first boot (and
+// copied to Downloads) by PocketDS Extra.
 
 android_app_import {
     name: "Obtainium",

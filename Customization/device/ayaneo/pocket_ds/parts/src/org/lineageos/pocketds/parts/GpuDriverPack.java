@@ -29,8 +29,8 @@ import java.io.OutputStream;
  */
 final class GpuDriverPack {
     private static final String TAG = "PocketDSDrivers";
-    private static final String DRIVER = "TurnipZ-0.3.0.zip";
-    private static final String MARK = ".pocketds-turnipz-0.3.0";
+    private static final String DRIVER = "TurnipZ-0.4.0.zip";
+    private static final String MARK = ".pocketds-turnipz-0.4.0";
     /** The emulators and the folder, in their data folder, where their drivers are kept. */
     private static final String[] PACKAGES = {"dev.eden.eden_emulator", "dev.eden.eden_nightly",
         "org.citron.citron_emu"};
@@ -92,6 +92,7 @@ final class GpuDriverPack {
             // Only where the emulator already has its folder, once, with the owner and the
             // security label of that folder (an app reads only what carries its own).
             RootShell.run("if [ -d " + dir + " ] && [ ! -e " + dir + "/" + MARK + " ]; then"
+                    + " rm -f " + dir + "/TurnipZ-0.3.0.zip " + dir + "/.pocketds-turnipz-0.3.0;"
                     + " cp " + cached.getPath() + " " + dir + "/" + DRIVER
                     + " && chown --reference=" + dir + " " + dir + "/" + DRIVER
                     + " && chmod 660 " + dir + "/" + DRIVER

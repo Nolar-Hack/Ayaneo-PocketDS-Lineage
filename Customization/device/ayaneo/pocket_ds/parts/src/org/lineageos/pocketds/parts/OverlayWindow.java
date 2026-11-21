@@ -1150,6 +1150,23 @@ final class OverlayWindow extends android.content.ContextWrapper {
         return false;
     }
 
+    /** Strength of the vibration of the controller, percent; persist.sys.pocketds.rumble. */
+    private static final String PROP_RUMBLE = "persist.sys.pocketds.rumble";
+
+    /**
+     * The strength chosen with the slider (saved with the settings, so also after a restore of a
+     * backup), given to the system when it differs; nothing chosen: full strength. Run at the
+     * start of the app and when the page opens.
+     */
+    static int rumbleStrength(android.content.SharedPreferences prefs) {
+        final int saved = prefs.getInt("controller_vibration", -1);
+        if (saved < 0 || saved > 100) return 100;
+        if (android.os.SystemProperties.getInt(PROP_RUMBLE, -1) != saved) {
+            android.os.SystemProperties.set(PROP_RUMBLE, Integer.toString(saved));
+        }
+        return saved;
+    }
+
     private android.os.VibratorManager controllerVibrator() {
         for (int id : android.view.InputDevice.getDeviceIds()) {
             final android.view.InputDevice device = android.view.InputDevice.getDevice(id);
@@ -1195,24 +1212,26 @@ final class OverlayWindow extends android.content.ContextWrapper {
         final TextView test = text("Test", 14, TEXT, true);
         test.setPadding(u(20), u(10), u(20), u(10));
         test.setBackground(box(0xFF232832, 0xFF2F3643, 10));
+        // The system scales every vibration of the controller (native 0007,
+        // persist.sys.pocketds.rumble): the test asks for full strength, as a game would.
         test.setOnClickListener(v -> {
             if (vibrator == null) return;
-            final int amplitude = Math.max(1, prefs.getInt("controller_vibration", 70) * 255 / 100);
             vibrator.vibrate(android.os.CombinedVibration.createParallel(
-                    android.os.VibrationEffect.createOneShot(350, amplitude)));
+                    android.os.VibrationEffect.createOneShot(350, 255)));
         });
         vibrationHead.addView(test);
         vibration.addView(vibrationHead);
-        final TextView percent = text(prefs.getInt("controller_vibration", 70) + " %", 14, TEXT,
-                true);
+        final int rumble = rumbleStrength(prefs);
+        final TextView percent = text(rumble + " %", 14, TEXT, true);
         final LinearLayout strength = new LinearLayout(this);
         strength.setGravity(Gravity.CENTER_VERTICAL);
         strength.addView(text("Strength", 14, TEXT, false), new LinearLayout.LayoutParams(u(86),
                 ViewGroup.LayoutParams.WRAP_CONTENT));
-        strength.addView(slider(prefs.getInt("controller_vibration", 70), 100, new Changed() {
+        strength.addView(slider(rumble, 100, new Changed() {
             @Override
             void changed(int value) {
                 prefs.edit().putInt("controller_vibration", value).apply();
+                android.os.SystemProperties.set(PROP_RUMBLE, Integer.toString(value));
                 percent.setText(value + " %");
             }
         }), new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));

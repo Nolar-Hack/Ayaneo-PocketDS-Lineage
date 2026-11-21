@@ -1,0 +1,27 @@
+Subject: [PATCH] inputflinger: strength of the vibration of the controllers
+
+persist.sys.pocketds.rumble (percent, 0 to 100, set by the PocketDS Extra overlay) scales both
+rumble magnitudes in EventHub::vibrate, where every vibration of an input device goes (games
+through InputDevice.getVibratorManager, and the system effects of base 0007). Unset, out of
+range or 100: nothing changes.
+
+diff --git a/services/inputflinger/reader/EventHub.cpp b/services/inputflinger/reader/EventHub.cpp
+--- a/services/inputflinger/reader/EventHub.cpp
++++ b/services/inputflinger/reader/EventHub.cpp
+@@ -1820,6 +1820,16 @@
+         // evdev FF_RUMBLE effect only supports two channels of vibration.
+         effect.u.rumble.strong_magnitude = element.getMagnitude(FF_STRONG_MAGNITUDE_CHANNEL_IDX);
+         effect.u.rumble.weak_magnitude = element.getMagnitude(FF_WEAK_MAGNITUDE_CHANNEL_IDX);
++        // Ayaneo Pocket DS: strength of the vibration of the controllers, chosen in PocketDS
++        // Extra (persist.sys.pocketds.rumble, percent, 0 to 100). Every vibration of a
++        // controller goes through here (games and the system). Unset or 100: unchanged.
++        const int32_t rumble = property_get_int32("persist.sys.pocketds.rumble", 100);
++        if (rumble >= 0 && rumble < 100) {
++            effect.u.rumble.strong_magnitude =
++                    static_cast<uint16_t>(effect.u.rumble.strong_magnitude * rumble / 100);
++            effect.u.rumble.weak_magnitude =
++                    static_cast<uint16_t>(effect.u.rumble.weak_magnitude * rumble / 100);
++        }
+         effect.replay.length = element.duration.count();
+         effect.replay.delay = 0;
+         if (ioctl(device->fd, EVIOCSFF, &effect)) {

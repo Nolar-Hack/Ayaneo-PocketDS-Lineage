@@ -49,6 +49,7 @@ final class ChargeLimitController {
     private final SharedPreferences mPrefs;
     private final Handler mMain = new Handler(Looper.getMainLooper());
     private boolean mHeld;
+    private SharedPreferences.OnSharedPreferenceChangeListener mPrefsListener;
     /** Playing on the charger: the battery rests (shown on the LED, see LedController). */
     private static volatile boolean sBypassing;
 
@@ -75,13 +76,15 @@ final class ChargeLimitController {
         };
         evaluate(mContext.registerReceiver(receiver,
                 new IntentFilter(Intent.ACTION_BATTERY_CHANGED)));
-        mPrefs.registerOnSharedPreferenceChangeListener((prefs, key) -> {
+        // Kept in a field: SharedPreferences holds its listeners weakly.
+        mPrefsListener = (prefs, key) -> {
             if (PREF_ON.equals(key) || PREF_LEVEL.equals(key) || PREF_GAME_BYPASS.equals(key)
                     || PREF_BYPASS.equals(key)) {
                 evaluate(mContext.registerReceiver(null,
                         new IntentFilter(Intent.ACTION_BATTERY_CHANGED)));
             }
-        });
+        };
+        mPrefs.registerOnSharedPreferenceChangeListener(mPrefsListener);
     }
 
     private void evaluate(Intent battery) {

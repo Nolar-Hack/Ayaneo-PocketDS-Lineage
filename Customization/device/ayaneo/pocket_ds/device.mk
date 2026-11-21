@@ -97,7 +97,7 @@ PRODUCT_COPY_FILES += \
     device/ayaneo/pocket_ds/configs/ksu/pocketds-parts-profile.json:$(TARGET_COPY_OUT_SYSTEM_EXT)/etc/pocketds/pocketds-parts-profile.json
 
 # Obtainium: app updater/installer (APK from GitHub), see packages/obtainium. Its emulation
-# app list is copied to Downloads by PocketDS Extra.
+# app list is loaded into it on the first boot (and copied to Downloads) by PocketDS Extra.
 PRODUCT_PACKAGES += \
     Obtainium
 
@@ -123,9 +123,8 @@ PRODUCT_NO_CAMERA := true
 # Dalvik — 16 GB device
 $(call inherit-product, frameworks/native/build/phone-xhdpi-6144-dalvik-heap.mk)
 
-# Bring-up (build with scripts/build.sh --bringup, i.e. WITH_ADB_INSECURE=true):
-# adb without authorization as early as possible, ro.debuggable=1 (adb root,
-# androidboot.selinux=permissive honoured). TODO: drop once the device boots.
+# Debug builds (scripts/build.sh --bringup, i.e. WITH_ADB_INSECURE=true): adb without
+# authorization as early as possible, ro.debuggable=1 (adb root). Not in the final builds.
 ifeq ($(WITH_ADB_INSECURE),true)
 PRODUCT_PRODUCT_PROPERTIES += \
     persist.sys.usb.config=mtp,adb

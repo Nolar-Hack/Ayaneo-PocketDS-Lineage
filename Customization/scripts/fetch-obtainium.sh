@@ -4,8 +4,8 @@ set -euo pipefail
 # Download Obtainium (pinned upstream release, arm64-v8a, presigned with the upstream key) into
 # packages/obtainium/prebuilt/. To update: change VERSION and SHA256.
 
-VERSION="v1.7.1"
-SHA256=04dfd02c56dae8d5271d2d402977e1b07c8eeffb313df054a13e71b75b8b8a26
+VERSION="v1.7.4"
+SHA256=f9216f721a7713b75929e0806bc18586f8fcf7328fbbff99b6aef1debb9eef80
 URL="https://github.com/ImranR98/Obtainium/releases/download/$VERSION/app-arm64-v8a-release.apk"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

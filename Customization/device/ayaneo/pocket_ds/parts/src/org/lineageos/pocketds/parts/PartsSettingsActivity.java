@@ -99,6 +99,93 @@ public class PartsSettingsActivity extends Activity {
         tiles.add(ui.tile("🧰", Ui.GREY, "Tools & logs", "Collect the logs",
                 open(SectionActivity.TOOLS)));
         ui.grid(page, tiles);
+        aboutCard(ui, page);
+    }
+
+    private static final String DISCORD = "https://discord.gg/mG8xu7pA42";
+    private static final String GITHUB = "https://github.com/Nolar-Hack";
+    private static final String TIPEEE = "https://en.tipeee.com/nolar";
+
+    /** Under the tiles, as wide as a line of them: version and the links of the community. */
+    private void aboutCard(Ui ui, android.widget.LinearLayout page) {
+        final android.widget.LinearLayout card = new android.widget.LinearLayout(this);
+        card.setOrientation(android.widget.LinearLayout.VERTICAL);
+        card.setPadding(ui.dp(20), ui.dp(20), ui.dp(20), ui.dp(20));
+        card.setBackground(ui.outlined(ui.surface, Ui.LINE, 16));
+
+        final android.widget.LinearLayout head = new android.widget.LinearLayout(this);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        final android.widget.TextView bubble = ui.bubble("ℹ️", Ui.BLUE, 60);
+        head.addView(bubble);
+        ((android.widget.LinearLayout.LayoutParams) bubble.getLayoutParams()).rightMargin =
+                ui.dp(16);
+        final android.widget.LinearLayout texts = new android.widget.LinearLayout(this);
+        texts.setOrientation(android.widget.LinearLayout.VERTICAL);
+        texts.addView(ui.label("About & community", 16, ui.text, true));
+        final android.widget.TextView sub = ui.label("PocketDS " + Updates.version()
+                + " · free and open source · questions, bugs and ideas on Discord", 14,
+                ui.textDim, false);
+        sub.setPadding(0, ui.dp(4), 0, 0);
+        texts.addView(sub);
+        head.addView(texts, new android.widget.LinearLayout.LayoutParams(0,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        card.addView(head);
+
+        final android.widget.LinearLayout links = new android.widget.LinearLayout(this);
+        links.setPadding(0, ui.dp(16), 0, 0);
+        link(ui, links, "discord", "Discord", 0xFF5865F2, DISCORD, false);
+        link(ui, links, "github", "GitHub", 0xFF3A4150, GITHUB, false);
+        // The Tipeee logo is its name: shown alone, no label.
+        link(ui, links, "tipeee", null, 0xFFD64758, TIPEEE, true);
+        card.addView(links);
+
+        page.addView(card, ui.matchWrap(0, 14, 0, 0));
+    }
+
+    /**
+     * A coloured button: the logo (res/drawable/ic_<glyph>) and the name, side by side; with no
+     * name, the logo alone at its own proportions (a wordmark).
+     */
+    private void link(Ui ui, android.widget.LinearLayout line, String glyph, String label,
+            int color, final String url, boolean last) {
+        final android.widget.LinearLayout button = new android.widget.LinearLayout(this);
+        button.setGravity(android.view.Gravity.CENTER);
+        button.setPadding(ui.dp(12), ui.dp(14), ui.dp(12), ui.dp(14));
+        button.setBackground(ui.rounded(color, 12));
+        final android.graphics.drawable.Drawable logo = ui.glyphDrawable(glyph, 0xFFFFFFFF);
+        if (logo != null) {
+            final android.widget.ImageView icon = new android.widget.ImageView(this);
+            icon.setImageDrawable(logo);
+            final int height = ui.dp(label == null ? 24 : 22);
+            final int width = label == null ? height * logo.getIntrinsicWidth()
+                    / Math.max(1, logo.getIntrinsicHeight()) : height;
+            final android.widget.LinearLayout.LayoutParams size =
+                    new android.widget.LinearLayout.LayoutParams(width, height);
+            if (label != null) size.rightMargin = ui.dp(10);
+            button.addView(icon, size);
+        }
+        if (label != null || logo == null) {
+            button.addView(ui.label(label != null ? label : "Tipeee", 15, 0xFFFFFFFF, true));
+        }
+        button.setOnClickListener(v -> openLink(url));
+        final android.widget.LinearLayout.LayoutParams params =
+                new android.widget.LinearLayout.LayoutParams(0,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        if (!last) params.rightMargin = ui.dp(12);
+        line.addView(button, params);
+    }
+
+    /** Opens the link in a browser; with no browser on the console, copies it instead. */
+    private void openLink(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (android.content.ActivityNotFoundException e) {
+            getSystemService(android.content.ClipboardManager.class).setPrimaryClip(
+                    android.content.ClipData.newPlainText("link", url));
+            android.widget.Toast.makeText(this, "No browser: link copied (" + url + ")",
+                    android.widget.Toast.LENGTH_LONG).show();
+        }
     }
 
     private String controllerStatus() {

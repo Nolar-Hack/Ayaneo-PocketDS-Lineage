@@ -87,14 +87,18 @@ build (test keys by default).
 
 ## Known gaps / TODO
 
-* First boot: SELinux is permissive (`androidboot.selinux=permissive`) — collect denials,
-  then remove it.
+* SELinux is permissive (`androidboot.selinux=permissive`), on purpose: our services have no
+  SELinux domain of their own yet.
 * The console buttons (swap, AYA window, home, profile, FPS) are handled by
   `patches/frameworks/base/0018`; LC / RC reach the games as gamepad keys.
-* Not ported: Ayaneo's framework property hooker (per-game spoofing), forced AYAHome as
-  default launcher, hidden notifications for the internal controller.
-* Miracast (WiFi Display) blobs are not shipped yet.
-* Stock kernel is 5.15.104: Android 17 compatibility to be confirmed on first boot.
+* Ayaneo's framework property hooker (per-game spoofing) is ported (`patches/frameworks/base/0002`)
+  but nothing sets it since the Ayaneo apps are gone. Not ported: hidden notifications for the
+  internal controller.
+* Miracast (WiFi Display) is not planned: the system side blobs of the stock ROM are Android 13.
+  Share the screen with Moonlight / Artemis instead (Obtainium pack).
+* The controller firmware settings that AYAHome sent over serial are not decoded.
+* The kernel is the stock one (5.15.104); LineageOS builds only its headers from the AYN QCS8550
+  sources (`TARGET_FORCE_PREBUILT_KERNEL`, the build warns about it).
 
 ## Prerequisites
 
@@ -106,7 +110,6 @@ how to install what is missing:
   `sudo` only to extract the blobs from a stock backup.
 - memory: RAM + swap >= 90 GB (the analysis phase peaks near 66 GB; a 64 GB swap file is enough on a 32 GB machine).
 - disk: about 320 GB free (100 GB of sources, 140 GB of build, 30 GB of OTA and work files).
-- only to rebuild the patched AYAHome (`tools/`): an Android SDK (platform 36 + cmdline-tools), found through `ANDROID_SDK`, `ANDROID_HOME` or `~/Android/Sdk`.
 
 ## Proprietary files
 

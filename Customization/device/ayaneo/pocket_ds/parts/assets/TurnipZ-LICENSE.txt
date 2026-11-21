@@ -1,4 +1,4 @@
-TurnipZ (modified Mesa Turnip driver), https://github.com/AlexSanz0902/turnip-sd865-z, release v0.3.0
+TurnipZ (modified Mesa Turnip driver), https://github.com/AlexSanz0902/turnip-sd865-z, release v0.4.0
 Kept here with the licence the project publishes; the driver is a third-party binary.
 
 MIT License

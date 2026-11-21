@@ -3,13 +3,13 @@
 # persist.sys.pocketds.firstboot). Run by init once boot is completed.
 #  - KernelSU Next manager: root itself is in init_boot, the app cannot be a
 #    preinstalled system app (compressed native libraries), install it as a user app.
-#  - Ayaneo apps enabled (standalone AYAWindow left to AYAHome); key service on.
-#  - AYA performance profiles (CPU / GPU frequencies, fan) of the user.
 #  - Root for PocketDS Extra (KernelSU profile, retried at each boot until stored).
-#  - Advanced restart enabled (power menu: recovery, bootloader).
-#  - AYAHome as the home screen (HOME role), like stock. Trebuchet must stay enabled:
-#    it is the recents / gestures provider (config_recentsComponentName) and its
-#    TouchInteractionService crashes when its own launcher activity is disabled.
+#  - PocketDS Extra started (keep-alive service) and made the home screen (HOME role); no
+#    Ayaneo app is shipped. Trebuchet must stay enabled: it is the recents / gestures
+#    provider (config_recentsComponentName) and its TouchInteractionService crashes when
+#    its own launcher activity is disabled.
+#  - Keyboards, vibrator of the controller, advanced restart (power menu: recovery,
+#    bootloader).
 # Root for PocketDS Extra (KernelSU Next app profile: uid 1000, su allowed). ksud is the
 # libksud.so of the manager app: /data/adb/ksud only exists once somebody opened the manager.
 # Retried at every boot until the profile is stored.

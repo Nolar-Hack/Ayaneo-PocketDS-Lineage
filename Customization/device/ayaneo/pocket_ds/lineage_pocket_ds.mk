@@ -31,12 +31,12 @@ PRODUCT_BUILD_PROP_OVERRIDES += \
     DeviceName=PocketDS \
     DeviceProduct=AYANEO_PocketDS
 
-# The Ayaneo dual screen support keys on the stock model code (framework, see
-# patches/frameworks/base/0003-ayaneo-dual-screen.patch) and on a "_YYYYMMDD_" system
-# date in ro.build.display.id (stock: 01.00_20261010_private_user): AYAHome enables its
-# current dual screen features (bottom-screen-only as a display swap, focus lock) from
-# the date 20260819 on. The build info block of each partition sets a default build
-# display id: the product one is loaded last and wins, so it is overridden there too.
+# The dual screen patches of the framework (patches/frameworks/base/0003, 0013, 0015, 0016)
+# are active only with the stock model code ro.product.device.type=AR11. The "_YYYYMMDD_"
+# date in ro.build.display.id comes from the AYAHome time (it gated its dual screen
+# features); nothing reads it now, kept as the name of the build. The build info block of
+# each partition sets a default build display id: the product one is loaded last and wins,
+# so it is overridden there too.
 POCKETDS_BUILD_DISPLAY_ID := lineage-24.0_$(shell date -u +%Y%m%d)_pocket_ds
 PRODUCT_SYSTEM_PROPERTIES += \
     ro.product.device.type=AR11 \

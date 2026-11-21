@@ -91,6 +91,12 @@ final class LedController implements SharedPreferences.OnSharedPreferenceChangeL
     private static String sShown;
     private static AlarmManager.OnAlarmListener sNightAlarm;
 
+    /**
+     * Kept here: SharedPreferences holds its listeners weakly, so a controller nobody refers to
+     * was collected and the settings only reached the LED at the next battery event.
+     */
+    private static LedController sInstance;
+
     private final Context mContext;
 
     LedController(Context context) {
@@ -105,6 +111,7 @@ final class LedController implements SharedPreferences.OnSharedPreferenceChangeL
     }
 
     void start() {
+        sInstance = this;
         readBattery(mContext.registerReceiver(null,
                 new IntentFilter(Intent.ACTION_BATTERY_CHANGED)));
         final IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);

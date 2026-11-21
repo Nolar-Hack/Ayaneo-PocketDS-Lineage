@@ -23,7 +23,11 @@ import java.util.List;
  * in use, or from the fan choice of the overlay when the user picked one.
  *
  * The duty is written to the pwm1 file of the fan (0-255, inverted: 255 = stopped, measured on the
- * console) through the root shell, only when it changed enough to matter.
+ * console) when it changed enough to matter, and again whenever the file no longer holds it: at
+ * boot the fan rail is power-cycled (init.pocketds.fan.sh) and the root shell may not be granted
+ * yet (first boot of a fresh install), which left the fan stopped until the next restart. The file
+ * is given to uid system by init.pocketds.fan.sh, so it is written directly; the root shell is
+ * only the fallback.
  */
 class FanController {
     private static final String TAG = "PocketDSFan";
@@ -41,6 +45,8 @@ class FanController {
     private String mPwm;
     private final List<String> mZones = new ArrayList<>();
     private int mLastPercent = -1;
+    /** The duty last written to pwm1, -1 before the first write. */
+    private int mLastDuty = -1;
     private String mLastMode = "";
 
     FanController(Context context, PerformanceProfiles profiles) {
@@ -103,18 +109,46 @@ class FanController {
         final String mode = mode();
         final int percent = percentFor(mode, hottestZone());
         final boolean modeChanged = !mode.equals(mLastMode);
-        if (modeChanged || mLastPercent < 0 || Math.abs(percent - mLastPercent) >= 4
+        // What the file holds now: a write lost (no root yet, rail power-cycled) is done again.
+        final boolean lost = mLastDuty >= 0 && duty() != mLastDuty;
+        if (modeChanged || lost || mLastPercent < 0 || Math.abs(percent - mLastPercent) >= 4
                 || (percent == 0 && mLastPercent != 0)) {
             // The fan of this console is wired the other way round: 255 stops it, 0 is full speed.
-            final boolean written = RootShell.run("echo " + (255 - percent * 255 / 100)
-                    + " > " + mPwm);
+            final int duty = 255 - percent * 255 / 100;
+            final boolean written = write(duty);
             Log.i(TAG, "Fan " + mode + " " + percent + " % at " + hottestZone() + " C: "
-                    + (written ? "written" : "NOT written (no root yet?), will retry"));
-            // A write that failed (root not ready yet) is tried again at the next tick.
+                    + (written ? "written" : "NOT written (no root yet?), will retry")
+                    + (lost ? " (the fan file had lost the last value)" : ""));
+            // A write that failed is tried again at the next tick.
             if (written) {
                 mLastPercent = percent;
                 mLastMode = mode;
+                mLastDuty = duty;
             }
+        }
+    }
+
+    /**
+     * Writes the duty: directly when the file is ours (init.pocketds.fan.sh), else through the
+     * root shell. The root shell does not tell whether su was granted: the next tick reads the
+     * file back and writes again when it does not hold the value.
+     */
+    private boolean write(int duty) {
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(mPwm)) {
+            out.write(Integer.toString(duty).getBytes(StandardCharsets.UTF_8));
+            return true;
+        } catch (IOException | SecurityException e) {
+            return RootShell.run("echo " + duty + " > " + mPwm);
+        }
+    }
+
+    /** The duty the fan file holds, -1 when unreadable. */
+    private int duty() {
+        final String text = readString(new File(mPwm));
+        try {
+            return text == null ? -1 : Integer.parseInt(text);
+        } catch (NumberFormatException e) {
+            return -1;
         }
     }
 
