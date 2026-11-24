@@ -39,7 +39,7 @@ public class UpdateJob extends JobService {
                     if (info != null) {
                         Updates.notifyAvailable(this, info);
                         if (PartsPrefs.get(this).getBoolean(Updates.PREF_AUTO_INSTALL, false)
-                                && canInstallNow() && !Updates.restartPending(this)
+                                && !Updates.quiet(this, info) && canInstallNow() && !Updates.restartPending(this)
                                 && !UpdateService.running()) {
                             startForegroundService(new Intent(this, UpdateService.class));
                         }
@@ -48,6 +48,11 @@ public class UpdateJob extends JobService {
             } catch (Exception e) {
                 Log.w(Updates.TAG, "check failed: " + e);
             }
+            // Statistics of the versions in use (once a day, can be switched off): VersionCount.
+            VersionCount.send(this);
+            // Same rhythm: the system log still runs and its old files go, the battery wear.
+            SystemLog.maintain(this);
+            BatteryHealth.check(this);
             jobFinished(params, false);
         }, "pocketds-update-check").start();
         return true;

@@ -15,7 +15,10 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- The Google services ID, shown in System update to register the console with Google -->
+    <uses-permission android:name="com.google.android.providers.gsf.permission.READ_GSERVICES" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.MODIFY_DAY_NIGHT_MODE" />
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
     <uses-permission android:name="lineageos.permission.WRITE_SECURE_SETTINGS" />
@@ -69,6 +72,9 @@
             android:exported="false"
             android:foregroundServiceType="systemExempted" />
         <receiver
+            android:name=".ChargeAlarmReceiver"
+            android:exported="false" />
+        <receiver
             android:name=".BootReceiver"
             android:directBootAware="true"
             android:exported="true">
@@ -94,6 +100,12 @@
             android:name=".ControllerMapActivity"
             android:taskAffinity=".extra"
             android:label="Button remapping"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+        <activity
+            android:name=".MacrosActivity"
+            android:taskAffinity=".extra"
+            android:label="Macros"
             android:exported="false"
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
         <activity

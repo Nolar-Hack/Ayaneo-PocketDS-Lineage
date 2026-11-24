@@ -47,6 +47,12 @@ public class PocketDSApplication extends Application {
         start("Updates", () -> UpdateJob.schedule(this));
         start("ObtainiumPack", () -> ObtainiumPack.copyOnce(this));
         start("Rumble", () -> OverlayWindow.rumbleStrength(PartsPrefs.get(this)));
+        start("Cycles", () -> new CycleCounter(this).start());
+        start("ShutdownLog", () -> ShutdownLog.noteBoot(this));
+        start("SystemLog", () -> SystemLog.start(this));
+        start("SleepDrain", () -> SleepDrain.start(this));
+        start("KeepScreenOn", () -> new KeepScreenOn(this).start());
+        start("BatteryHealth", () -> new Thread(() -> BatteryHealth.check(this)).start());
     }
 
     private static void start(String name, Runnable controller) {

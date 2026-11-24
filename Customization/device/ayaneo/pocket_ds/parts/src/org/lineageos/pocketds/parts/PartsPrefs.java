@@ -43,6 +43,8 @@ final class PartsPrefs {
     static final String POWEROFF_LID_MIN = "poweroff_lid_min";
     static final String POWEROFF_SCREEN_MIN = "poweroff_screen_min";
     static final String POWEROFF_ONLY_ON_BATTERY = "poweroff_only_on_battery";
+    /** Lid closed powers off even with a cable plugged in (the default). */
+    static final String POWEROFF_LID_PLUGGED = "poweroff_lid_plugged";
     static final String POWEROFF_KEEP_GAME = "poweroff_keep_game";
     /** A game kept asleep is powered off anyway after this many minutes asleep (0 = never). */
     static final String POWEROFF_GAME_MAX_MIN = "poweroff_game_max_min";
@@ -51,6 +53,9 @@ final class PartsPrefs {
     // profile, else a PerformanceProfiles.FAN_* value).
     static final String PERF_PROFILE = "perf_profile";
     static final String FAN_MODE = "fan_mode";
+    /** Own fan curve in place of the Mute and Balance ones: on/off and the percents. */
+    static final String FAN_CURVE_ON = "fan_curve_on";
+    static final String FAN_CURVE = "fan_curve";
     static final String BRIGHTNESS_LINK = "brightness_link";
 
     // Screens: which screen keeps the controller focus (auto / top / bottom).
@@ -76,7 +81,20 @@ final class PartsPrefs {
     static final String MAIN_SCREEN_ID = "local:4630946412288502659";
     static final String SECOND_SCREEN_ID = "local:4630946708815090308";
 
-    private PartsPrefs() {}
+
+
+    /**
+     * A cable is plugged in. Not BatteryManager.isCharging(): while the charge limit holds the
+     * battery (or a charger that has stopped) Android says "not charging" with the cable still
+     * in, and "only on battery" rules (power off, Wi-Fi off) would then act on a console that is
+     * plugged in.
+     */
+    static boolean pluggedIn(Context context) {
+        final android.content.Intent battery = context.registerReceiver(null,
+                new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+        return battery != null
+                && battery.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0) != 0;
+    }
 
     static SharedPreferences get(Context context) {
         return PreferenceManager.getDefaultSharedPreferences(context);

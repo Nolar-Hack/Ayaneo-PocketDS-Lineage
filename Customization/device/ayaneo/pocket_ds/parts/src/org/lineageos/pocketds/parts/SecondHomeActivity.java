@@ -120,7 +120,7 @@ public class SecondHomeActivity extends Activity {
         final TextView title = ui.label("Applications", 26, 0xFFE9ECF2, true);
         title.setSingleLine(true);
         heading.addView(title);
-        final TextView hint = ui.label("Tap an app, then pick a screen", 14, 0xFF98A2B3, false);
+        final TextView hint = ui.label("Tap an app: screen, app info or folder", 14, 0xFF98A2B3, false);
         hint.setSingleLine(true);
         heading.addView(hint);
         bar.addView(heading, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -265,7 +265,35 @@ public class SecondHomeActivity extends Activity {
 
     /** "Top screen or bottom screen?", then launches the app there. */
     private void ask(Entry entry) {
-        screenChoice(entry.label, entry.icon, panel -> open(entry, panel));
+        final Folders store = new Folders(this);
+        final Folders.Folder current = store.folderOf(store.load(), key(entry));
+        final List<String> labels = new ArrayList<>();
+        final List<Runnable> actions = new ArrayList<>();
+        labels.add("ⓘ  App info");
+        actions.add(() -> appInfo(entry));
+        if (current != null) {
+            labels.add("📁  Take out of \"" + current.name + "\"");
+            actions.add(() -> takeOut(entry));
+        } else {
+            labels.add("📁  Put in a folder");
+            actions.add(() -> chooseFolder(entry));
+        }
+        screenChoice(entry.label, entry.icon, panel -> open(entry, panel),
+                labels.toArray(new String[0]), actions.toArray(new Runnable[0]));
+    }
+
+    private void appInfo(Entry entry) {
+        startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.fromParts("package", entry.component.getPackageName(), null))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+    }
+
+    private void takeOut(Entry entry) {
+        final Folders store = new Folders(this);
+        final List<Folders.Folder> all = store.load();
+        store.remove(all, key(entry));
+        store.save(all);
+        refreshGrid();
     }
 
     /** Pixels of the design (1024 px wide): the dialog is drawn like the mockup. */
@@ -293,7 +321,12 @@ public class SecondHomeActivity extends Activity {
 
     /** The card of the design: app, "Open it on which screen?", two screen choices, Cancel. */
     private void screenChoice(String name, Drawable icon, java.util.function.IntConsumer pick) {
-        final android.app.Dialog dialog = new android.app.Dialog(this,
+        screenChoice(name, icon, pick, new String[0], new Runnable[0]);
+    }
+
+    private void screenChoice(String name, Drawable icon, java.util.function.IntConsumer pick,
+            String[] extraLabels, Runnable[] extraActions) {
+        final android.app.Dialog dialog = new TapGuardDialog(this,
                 android.R.style.Theme_DeviceDefault_NoActionBar);
         final LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
@@ -330,6 +363,27 @@ public class SecondHomeActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         choiceParams.topMargin = u(24);
         card.addView(choices, choiceParams);
+
+        if (extraLabels.length > 0) {
+            // App info, folder: next to the screen choice, so one press gives everything
+            final LinearLayout extras = new LinearLayout(this);
+            for (int i = 0; i < extraLabels.length; i++) {
+                final Runnable action = extraActions[i];
+                final TextView button = cardButton(extraLabels[i], false, 0);
+                button.setOnClickListener(v -> {
+                    dialog.dismiss();
+                    action.run();
+                });
+                final LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0,
+                        ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+                if (i > 0) params.leftMargin = u(12);
+                extras.addView(button, params);
+            }
+            final LinearLayout.LayoutParams extraParams = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            extraParams.topMargin = u(16);
+            card.addView(extras, extraParams);
+        }
 
         final TextView cancel = text("Cancel", 16, 0xFF98A2B3, true);
         cancel.setGravity(Gravity.CENTER);
@@ -517,7 +571,7 @@ public class SecondHomeActivity extends Activity {
     }
 
     private android.app.Dialog cardDialog(LinearLayout card, int widthU, int gravity) {
-        final android.app.Dialog dialog = new android.app.Dialog(this,
+        final android.app.Dialog dialog = new TapGuardDialog(this,
                 android.R.style.Theme_DeviceDefault_NoActionBar);
         card.setBackground(box(0xFF171B22, 0xFF2F3643, 24));
         final android.widget.FrameLayout scrim = new android.widget.FrameLayout(this);
@@ -628,17 +682,10 @@ public class SecondHomeActivity extends Activity {
         actions.add(() -> chooseFolder(entry));
         if (current != null) {
             labels.add("Take out of \"" + current.name + "\"");
-            actions.add(() -> {
-                final List<Folders.Folder> all = store.load();
-                store.remove(all, key(entry));
-                store.save(all);
-                refreshGrid();
-            });
+            actions.add(() -> takeOut(entry));
         }
         labels.add("App info");
-        actions.add(() -> startActivity(new Intent(android.provider.Settings
-                .ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package",
-                entry.component.getPackageName(), null)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)));
+        actions.add(() -> appInfo(entry));
         optionsDialog(entry.label, labels.toArray(new String[0]),
                 actions.toArray(new Runnable[0]));
     }

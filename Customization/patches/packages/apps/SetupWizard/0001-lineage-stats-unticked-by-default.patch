@@ -1,0 +1,19 @@
+Subject: [PATCH] SetupWizard: LineageOS statistics unticked by default
+
+The services page of the setup wizard had "Help improve LineageOS" (anonymous statistics sent to
+stats.lineageos.org) ticked unless the user unticked it. PocketDS has its own count of the
+versions in use: the LineageOS statistics are now off unless the user ticks the box.
+
+--- a/app/src/main/java/org/lineageos/setupwizard/settings/LineageSettingsActivity.kt
++++ b/app/src/main/java/org/lineageos/setupwizard/settings/LineageSettingsActivity.kt
+@@ -72,8 +72,8 @@
+ 
+     private fun updateMetricsOption() {
+         val myPageBundle = SetupWizardApp.settingsBundle
+-        val metricsChecked =
+-            !myPageBundle.containsKey(KEY_SEND_METRICS) || myPageBundle.getBoolean(KEY_SEND_METRICS)
++        // PocketDS: unticked unless the user ticks it (these statistics go to LineageOS)
++        val metricsChecked = myPageBundle.getBoolean(KEY_SEND_METRICS, false)
+         metricsItem.isChecked = metricsChecked
+         myPageBundle.putBoolean(KEY_SEND_METRICS, metricsChecked)
+     }

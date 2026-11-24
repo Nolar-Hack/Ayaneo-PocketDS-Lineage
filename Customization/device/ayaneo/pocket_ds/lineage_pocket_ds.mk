@@ -59,4 +59,10 @@ ifneq ($(POCKETDS_UPDATE_URL),)
 PRODUCT_SYSTEM_PROPERTIES += ro.pocketds.update_url=$(POCKETDS_UPDATE_URL)
 endif
 
+# Where PocketDS Extra sends the count of the versions in use (POCKETDS_STATS_URL, from
+# pocketds.conf; random identifier + version, see tools/stats-worker). Empty: nothing is sent.
+ifneq ($(POCKETDS_STATS_URL),)
+PRODUCT_SYSTEM_PROPERTIES += ro.pocketds.stats_url=$(POCKETDS_STATS_URL)
+endif
+
 PRODUCT_GMS_CLIENTID_BASE := android-ayaneo

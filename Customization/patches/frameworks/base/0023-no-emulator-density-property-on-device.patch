@@ -1,0 +1,30 @@
+Subject: [PATCH] DisplayMetrics: the emulator density property is read only on an emulator
+
+getDeviceDensity() read qemu.sf.lcd_density (the density override of the Android emulator) before
+ro.sf.lcd_density, in every app. Reading it maps the property area of its context
+(qemu_sf_lcd_density_prop) into the app, and root / integrity checkers (Duck Detector) report that
+mapping as a virtual machine. It is now read only when ro.boot.qemu says the system runs in the
+emulator; on the console the density is ro.sf.lcd_density, as before.
+
+--- a/core/java/android/util/DisplayMetrics.java
++++ b/core/java/android/util/DisplayMetrics.java
+@@ -506,11 +506,17 @@
+     }
+ 
+     private static int getDeviceDensity() {
++        final int density = SystemProperties.getInt("ro.sf.lcd_density", DENSITY_DEFAULT);
+         // qemu.sf.lcd_density can be used to override ro.sf.lcd_density
+         // when running in the emulator, allowing for dynamic configurations.
+         // The reason for this is that ro.sf.lcd_density is write-once and is
+         // set by the init process when it parses build.prop before anything else.
+-        return SystemProperties.getInt("qemu.sf.lcd_density",
+-                SystemProperties.getInt("ro.sf.lcd_density", DENSITY_DEFAULT));
++        // PocketDS: read only on an emulator. Reading it maps the property area of the emulator
++        // (qemu_sf_lcd_density_prop) into every app, which root and integrity checkers report as
++        // a virtual machine.
++        if (!SystemProperties.getBoolean("ro.boot.qemu", false)) {
++            return density;
++        }
++        return SystemProperties.getInt("qemu.sf.lcd_density", density);
+     }
+ }

@@ -1,0 +1,37 @@
+Subject: [PATCH] PhoneWindowManager: a controller button can run a PocketDS Extra macro
+
+A button remapped to a macro sends the key code 1000 + the macro number (1001 to 1099, set by the
+input reader from persist.sys.pocketds.keymap). The system takes it before any app (the key down
+and up never reach a window) and, on the key down, tells PocketDS Extra which macro to play with
+the broadcast org.lineageos.pocketds.parts.MACRO (extra "id"). PocketDS Extra presses the keys of
+the macro itself (Macros.java).
+
+--- a/services/core/java/com/android/server/policy/PhoneWindowManager.java
++++ b/services/core/java/com/android/server/policy/PhoneWindowManager.java
+@@ -4800,6 +4800,7 @@
+     private static final int POCKETDS_KEY_HOME = KeyEvent.KEYCODE_BUTTON_7;      // violet
+     private static final int POCKETDS_KEY_PROFILE = KeyEvent.KEYCODE_BUTTON_8;   // green
+     private static final long POCKETDS_LONG_PRESS_MS = 600;
++    private static final int POCKETDS_MACRO_BASE = 1000;
+ 
+     /**
+      * The extra buttons of the console ("AYANEO DEVICE" and the central button of "AYANEO
+@@ -4816,6 +4817,18 @@
+             return false;
+         }
+         final int code = event.getKeyCode();
++        // A button of the controller set to run a macro sends the key code 1000 + the macro
++        // number (1001...1099, no real key has them): the apps never see it, PocketDS Extra plays
++        // the macro when the button goes down.
++        if (code > POCKETDS_MACRO_BASE && code <= POCKETDS_MACRO_BASE + 99) {
++            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
++                final int id = code - POCKETDS_MACRO_BASE;
++                mHandler.post(() -> mContext.sendBroadcastAsUser(
++                        new Intent("org.lineageos.pocketds.parts.MACRO").putExtra("id", id)
++                                .setPackage(POCKETDS_PACKAGE), UserHandle.CURRENT));
++            }
++            return true;
++        }
+         if (code != POCKETDS_KEY_SWAP && code != POCKETDS_KEY_OVERLAY
+                 && code != POCKETDS_KEY_HOME && code != POCKETDS_KEY_PROFILE
+                 && code != KeyEvent.KEYCODE_BUTTON_MODE) {

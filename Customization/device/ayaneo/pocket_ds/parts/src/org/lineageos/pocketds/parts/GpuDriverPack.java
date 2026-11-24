@@ -29,8 +29,11 @@ import java.io.OutputStream;
  */
 final class GpuDriverPack {
     private static final String TAG = "PocketDSDrivers";
-    private static final String DRIVER = "TurnipZ-0.4.0.zip";
-    private static final String MARK = ".pocketds-turnipz-0.4.0";
+    /** The driver of the image; a newer one downloaded from System update > Add-ons wins. */
+    private static final String BUNDLED = "TurnipZ-0.4.0.zip";
+    private static final java.util.regex.Pattern NAME = java.util.regex.Pattern.compile(
+            "TurnipZ-([0-9][0-9A-Za-z.\\-]*)\\.zip");
+    private static GpuDriverPack sInstance;
     /** The emulators and the folder, in their data folder, where their drivers are kept. */
     private static final String[] PACKAGES = {"dev.eden.eden_emulator", "dev.eden.eden_nightly",
         "org.citron.citron_emu"};
@@ -45,6 +48,7 @@ final class GpuDriverPack {
     }
 
     void start() {
+        sInstance = this;
         final IntentFilter filter = new IntentFilter(Intent.ACTION_PACKAGE_ADDED);
         filter.addAction(Intent.ACTION_PACKAGE_REPLACED);
         filter.addDataScheme("package");
@@ -66,6 +70,41 @@ final class GpuDriverPack {
         mHandler.postDelayed(() -> install(true), 30_000);
     }
 
+    /** Folder of the drivers downloaded by the add-ons page. */
+    static File downloadDir(Context context) {
+        return new File(context.createDeviceProtectedStorageContext().getFilesDir(), "drivers");
+    }
+
+    /** The version of the driver that is put in the emulators: the newest of the two. */
+    static String currentVersion(Context context) {
+        return versionOf(newest(context));
+    }
+
+    private static String versionOf(String name) {
+        final java.util.regex.Matcher m = NAME.matcher(name);
+        return m.matches() ? m.group(1) : "0";
+    }
+
+    private static String newest(Context context) {
+        String best = BUNDLED;
+        final String[] names = downloadDir(context).list();
+        if (names != null) {
+            for (String name : names) {
+                if (NAME.matcher(name).matches()
+                        && Addons.compare(versionOf(name), versionOf(best)) > 0) {
+                    best = name;
+                }
+            }
+        }
+        return best;
+    }
+
+    /** A driver was downloaded: put it in the emulators now. */
+    static void refresh() {
+        final GpuDriverPack pack = sInstance;
+        if (pack != null) pack.mHandler.post(() -> pack.install(true));
+    }
+
     private boolean enabled() {
         return PartsPrefs.get(mContext).getBoolean(PartsPrefs.GPU_DRIVER_PACK, true);
     }
@@ -76,8 +115,12 @@ final class GpuDriverPack {
         final long now = SystemClock.elapsedRealtime();
         if (!force && now - mLastTry < RETRY_MS) return;
         mLastTry = now;
-        final File cached = new File(mContext.getCacheDir(), DRIVER);
-        try (InputStream in = mContext.getAssets().open(DRIVER);
+        final String driver = newest(mContext);
+        final String mark = ".pocketds-turnipz-" + versionOf(driver);
+        final File downloaded = new File(downloadDir(mContext), driver);
+        final File cached = new File(mContext.getCacheDir(), driver);
+        try (InputStream in = driver.equals(BUNDLED) && !downloaded.exists()
+                ? mContext.getAssets().open(driver) : new java.io.FileInputStream(downloaded);
                 OutputStream out = new java.io.FileOutputStream(cached)) {
             final byte[] buf = new byte[16384];
             int n;
@@ -91,15 +134,15 @@ final class GpuDriverPack {
             final String dir = "/data/media/0/Android/data/" + pkg + "/files/gpu_drivers";
             // Only where the emulator already has its folder, once, with the owner and the
             // security label of that folder (an app reads only what carries its own).
-            RootShell.run("if [ -d " + dir + " ] && [ ! -e " + dir + "/" + MARK + " ]; then"
-                    + " rm -f " + dir + "/TurnipZ-0.3.0.zip " + dir + "/.pocketds-turnipz-0.3.0;"
-                    + " cp " + cached.getPath() + " " + dir + "/" + DRIVER
-                    + " && chown --reference=" + dir + " " + dir + "/" + DRIVER
-                    + " && chmod 660 " + dir + "/" + DRIVER
-                    + " && chcon --reference=" + dir + " " + dir + "/" + DRIVER
-                    + " && : > " + dir + "/" + MARK
-                    + " && chown --reference=" + dir + " " + dir + "/" + MARK
-                    + " && chcon --reference=" + dir + " " + dir + "/" + MARK
+            RootShell.run("if [ -d " + dir + " ] && [ ! -e " + dir + "/" + mark + " ]; then"
+                    + " rm -f " + dir + "/TurnipZ-*.zip " + dir + "/.pocketds-turnipz-*;"
+                    + " cp " + cached.getPath() + " " + dir + "/" + driver
+                    + " && chown $(stat -c %u:%g " + dir + ") " + dir + "/" + driver
+                    + " && chmod 660 " + dir + "/" + driver
+                    + " && chcon $(stat -c %C " + dir + ") " + dir + "/" + driver
+                    + " && : > " + dir + "/" + mark
+                    + " && chown $(stat -c %u:%g " + dir + ") " + dir + "/" + mark
+                    + " && chcon $(stat -c %C " + dir + ") " + dir + "/" + mark
                     + " && echo \"TurnipZ added to " + pkg + "\" > /dev/kmsg; fi");
         }
     }

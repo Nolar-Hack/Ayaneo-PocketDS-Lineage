@@ -212,6 +212,7 @@ PRODUCT_PACKAGES += \
     init.qcom.usb.sh \
     init.target.rc \
     init.pocketds.fan.sh \
+    init.pocketds.vbmeta.sh \
     ueventd.qcom.rc
 
 # Input — internal controller (USB 4001:0428, Generic.kl), "AYANEO DEVICE" extra

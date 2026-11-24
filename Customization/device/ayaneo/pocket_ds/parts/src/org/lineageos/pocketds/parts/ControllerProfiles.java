@@ -48,6 +48,47 @@ final class ControllerProfiles implements ForegroundWatcher.Listener {
     static final int[] TARGET_CODES = {96, 97, 99, 100, 102, 103, 104, 105, 106, 107, 108, 109,
         110, 19, 20, 21, 22, 4, 3, 24, 25, 0};
 
+    /** Modifiers sent with a key: bits above 16 of the key code (read by the input reader). */
+    static final int MOD_CTRL = 1;
+    static final int MOD_ALT = 2;
+    static final int MOD_SHIFT = 4;
+    static final int MOD_META = 8;
+    static final String[] MOD_NAMES = {"Ctrl", "Alt", "Shift", "Meta"};
+
+    static int baseOf(int code) {
+        return code < 0 ? code : code & 0xFFFF;
+    }
+
+    static int modsOf(int code) {
+        return code < 0 ? 0 : (code >>> 16) & 0xF;
+    }
+
+    static int withMods(int code, int mods) {
+        return baseOf(code) | (mods << 16);
+    }
+
+    /** What a button sends: a controller button, a keyboard key (with modifiers) or a macro. */
+    static String targetName(android.content.Context context, int code) {
+        final int base = baseOf(code);
+        final int mods = modsOf(code);
+        String name = null;
+        for (int i = 0; i < TARGET_CODES.length; i++) {
+            if (TARGET_CODES[i] == base) name = TARGET_NAMES[i];
+        }
+        if (name == null && Macros.isMacroCode(base)) {
+            name = "Macro: " + Macros.nameOf(context, base - Macros.CODE_BASE);
+        }
+        if (name == null) {
+            final Keys.Key key = Keys.byCode(base);
+            name = key != null ? key.label : "key " + base;
+        }
+        final StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < MOD_NAMES.length; i++) {
+            if ((mods & (1 << i)) != 0) sb.append(MOD_NAMES[i]).append('+');
+        }
+        return sb.append(name).toString();
+    }
+
     /** "scancode:keycode,..." as read by the input reader. */
     static android.util.SparseIntArray parseMap(String text) {
         final android.util.SparseIntArray map = new android.util.SparseIntArray();

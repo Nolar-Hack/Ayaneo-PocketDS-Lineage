@@ -214,10 +214,7 @@ final class ConsoleMapView extends View {
     }
 
     private String targetName(int code) {
-        for (int i = 0; i < ControllerProfiles.TARGET_CODES.length; i++) {
-            if (ControllerProfiles.TARGET_CODES[i] == code) return ControllerProfiles.TARGET_NAMES[i];
-        }
-        return "Key " + code;
+        return ControllerProfiles.targetName(getContext(), code);
     }
 
     @Override

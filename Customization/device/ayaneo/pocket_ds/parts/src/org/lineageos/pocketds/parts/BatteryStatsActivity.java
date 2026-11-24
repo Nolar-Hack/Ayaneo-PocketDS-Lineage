@@ -67,12 +67,47 @@ public class BatteryStatsActivity extends Activity {
         mSuspend = mUi.row(sleep, "💤", Ui.TEAL, "Suspend", "");
         mUi.note(page, "Deep sleep is the share of the time since the boot during which the "
                 + "processor was fully asleep: the higher, the better for the battery.");
+
+        mUi.section(page, "Battery lost while asleep");
+        mDrain = mUi.card(page);
+        mUi.note(page, "Only on battery, 10 minutes of sleep or more, kept for 2 days. A loss "
+                + "above 1 % an hour means something kept the console awake: see the wake "
+                + "locks below.");
+        mUi.section(page, "Keeping the console awake now");
+        mLocks = mUi.card(page);
+    }
+
+    private LinearLayout mDrain;
+    private LinearLayout mLocks;
+
+    /** The sleeps and the wake locks, read off the main thread (dumpsys is slow). */
+    private void loadSleep() {
+        new Thread(() -> {
+            final java.util.List<String> sleeps = SleepDrain.lines(this);
+            final java.util.List<String> locks = SleepDrain.wakeLocks(this);
+            runOnUiThread(() -> {
+                mDrain.removeAllViews();
+                if (sleeps.isEmpty()) {
+                    mUi.row(mDrain, "🌙", Ui.PURPLE, "Nothing yet",
+                            "Unplug the console and let it sleep for 10 minutes or more");
+                }
+                for (int i = 0; i < Math.min(8, sleeps.size()); i++) {
+                    mUi.row(mDrain, "🌙", Ui.PURPLE, sleeps.get(i), null);
+                }
+                mLocks.removeAllViews();
+                if (locks.isEmpty()) mUi.row(mLocks, "✅", Ui.GREEN, "None", null);
+                for (int i = 0; i < Math.min(8, locks.size()); i++) {
+                    mUi.row(mLocks, "🔒", Ui.ORANGE, locks.get(i), null);
+                }
+            });
+        }, "pocketds-sleep").start();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         mHandler.post(mRefresh);
+        loadSleep();
     }
 
     @Override
@@ -156,7 +191,7 @@ public class BatteryStatsActivity extends Activity {
             health += String.format(Locale.US, "  ·  capacity %.0f %% of new  ·  %d mAh",
                     100.0 * chargeFull / chargeDesign, chargeFull / 1000);
         }
-        if (cycles >= 0) health += "  ·  " + cycles + " cycles";
+        health += "  ·  " + CycleCounter.describe(PartsPrefs.get(this), cycles);
         mUi.setSummary(mHealth, health);
 
         final long up = SystemClock.uptimeMillis();

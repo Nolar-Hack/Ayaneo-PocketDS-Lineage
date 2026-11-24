@@ -1,7 +1,10 @@
 # LineageOS 24.0 for the Ayaneo Pocket DS
 
 LineageOS 24.0 (Android 17) port for the Ayaneo Pocket DS (Snapdragon G3x Gen 2,
-`kalama`, `soc_id` 601). **Not built or booted yet** — this is a bring-up tree.
+`kalama`, `soc_id` 601). Unofficial builds, tested on one console: downloads are in
+[Ayaneo-PocketDS-Lineage-Releases](https://github.com/Nolar-Hack/Ayaneo-PocketDS-Lineage-Releases).
+
+**Community:** questions, bugs and ideas on the Discord server, <https://discord.gg/mG8xu7pA42>.
 
 * Qualcomm-common parts follow `LineageOS/android_device_ayn_qcs8550-common`.
 * Kernel, DTB, DTBO and kernel modules are the stock ones, byte for byte.
@@ -140,6 +143,20 @@ incremental package that one is downloaded, else the complete one (also when the
 Installation goes through update_engine in the background; the console only restarts on the user's order.
 With SELinux enforcing, update_engine and the app need their own policy rules.
 
+### Count of the versions in use
+
+When `STATS_URL` is set in `pocketds.conf`, PocketDS Extra sends once a day the **random identifier of the
+console** (one per console, kept until a wipe) and the
+**version of the system** to that address (`tools/stats-worker`, a free Cloudflare Worker that acts as a
+proxy: it counts, then posts a summary in the developer's private Discord channel; the consoles never talk
+to Discord). It tells which versions
+are still in use, to choose how often to release updates, how many incremental packages to keep, and whether
+frequent updates are worth it. Nothing else is sent: no address
+kept, no serial number, no country. The identifier is made by the app, renewed every 12 months (the old one is
+then dropped by the server at once) and lost at a wipe; the server forgets an identifier not seen for 30 days. Switch it off in System update > Count this
+console: the app deletes its identifier. Hosted by Cloudflare (United States, under the EU-US Data Privacy
+Framework). Empty `STATS_URL`: nothing is sent and the switch is hidden.
+
 ## Settings and releases
 
 `Customization/pocketds.conf` holds the options of the build (`VARIANT`, `JOBS`, memory limits, `KERNELSU`,
@@ -151,3 +168,14 @@ addresses written in `update.json`; to publish somewhere else, change it (or ove
 
 `scripts/publish-release.sh` publishes the last build as the release `v<version>` of `RELEASE_REPO`
 (complete package, incremental package, `update.json`, notes). It shows what it is about to do and asks first.
+A build made with `--bringup` (adb without authorization: anyone with a USB cable gets a shell) is refused
+for a release (`--allow-insecure` to force it): `--bringup` is for testing only. A release build is still
+`userdebug` with SELinux permissive; adb asks for authorization and `ro.debuggable` is 0 (no `adb root`; root
+through KernelSU stays).
+
+Before a build, `scripts/check-updates.sh` tells whether KernelSU Next, Obtainium, the TurnipZ driver or the
+Obtainium Emulation Pack has a newer release. `OTA_KEEP_RELEASES` (4) is how many published releases get a
+small incremental package to the new build.
+
+The LineageOS statistics (Settings > Privacy, sent to stats.lineageos.org) are off by default: the box of the
+setup wizard is unticked (`patches/packages/apps/SetupWizard`) and `def_stats_collection` is false.

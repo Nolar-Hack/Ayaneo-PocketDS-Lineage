@@ -38,6 +38,12 @@ class FanController {
     private static final int[][] MUTE = {{40, 25}, {50, 35}, {60, 55}, {70, 80}, {80, 100}};
     private static final int[][] BALANCE = {{35, 30}, {45, 45}, {55, 65}, {65, 85}, {72, 100}};
 
+    /** Temperatures of the points of the own curve; the percents are the user's. */
+    static final int[] OWN_TEMPS = {40, 50, 60, 70, 80};
+    static final int[] OWN_DEFAULT = {25, 35, 55, 80, 100};
+    /** Above this temperature the fan runs at full speed, whatever the curve says. */
+    private static final int ALWAYS_FULL_C = 85;
+
     private final Context mContext;
     private final PerformanceProfiles mProfiles;
     private final HandlerThread mThread = new HandlerThread("PocketDSFan");
@@ -107,7 +113,7 @@ class FanController {
 
     private void step() {
         final String mode = mode();
-        final int percent = percentFor(mode, hottestZone());
+        final int percent = percentFor(mode, hottestZone(), ownCurve());
         final boolean modeChanged = !mode.equals(mLastMode);
         // What the file holds now: a write lost (no root yet, rail power-cycled) is done again.
         final boolean lost = mLastDuty >= 0 && duty() != mLastDuty;
@@ -152,9 +158,47 @@ class FanController {
         }
     }
 
+    /** The own curve (percents at OWN_TEMPS, never going down), or null when it is not in use. */
+    private int[] ownCurve() {
+        final android.content.SharedPreferences prefs = PartsPrefs.get(mContext);
+        return prefs.getBoolean(PartsPrefs.FAN_CURVE_ON, false)
+                ? ownPercents(prefs.getString(PartsPrefs.FAN_CURVE, "")) : null;
+    }
+
+    /** The percents of the own curve from their saved text, each at least the one before. */
+    static int[] ownPercents(String saved) {
+        final String[] parts = saved.split(",");
+        final int[] out = new int[OWN_TEMPS.length];
+        for (int i = 0; i < out.length; i++) {
+            int value = OWN_DEFAULT[i];
+            try {
+                if (i < parts.length) value = Integer.parseInt(parts[i].trim());
+            } catch (NumberFormatException e) {
+                // the default stays
+            }
+            out[i] = Math.max(i > 0 ? out[i - 1] : 0, Math.max(0, Math.min(100, value)));
+        }
+        return out;
+    }
+
     static int percentFor(String mode, float temperature) {
+        return percentFor(mode, temperature, null);
+    }
+
+    static int percentFor(String mode, float temperature, int[] own) {
         if (PerformanceProfiles.FAN_OFF.equals(mode)) return 0;
-        if (PerformanceProfiles.FAN_TURBO.equals(mode)) return 100;
+        if (PerformanceProfiles.FAN_TURBO.equals(mode) || temperature >= ALWAYS_FULL_C) return 100;
+        if (own != null) {
+            if (temperature <= OWN_TEMPS[0]) return own[0];
+            for (int i = 1; i < OWN_TEMPS.length; i++) {
+                if (temperature <= OWN_TEMPS[i]) {
+                    final float k = (temperature - OWN_TEMPS[i - 1])
+                            / (float) (OWN_TEMPS[i] - OWN_TEMPS[i - 1]);
+                    return Math.round(own[i - 1] + k * (own[i] - own[i - 1]));
+                }
+            }
+            return own[own.length - 1];
+        }
         final int[][] curve = PerformanceProfiles.FAN_BALANCE.equals(mode) ? BALANCE : MUTE;
         if (temperature <= curve[0][0]) return MIN_PERCENT_ON;
         for (int i = 1; i < curve.length; i++) {

@@ -1,5 +1,8 @@
 # Ayaneo Pocket DS — LineageOS 24
 
+- Builds: https://github.com/Nolar-Hack/Ayaneo-PocketDS-Lineage-Releases
+- Discord (help, bugs, ideas, announcements): https://discord.gg/mG8xu7pA42
+
     ./build.sh --help        everything starts here
 
     Customization/   everything that is ours: device tree, patches, apps, tools, scripts, manifests

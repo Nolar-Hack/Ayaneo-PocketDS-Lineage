@@ -66,6 +66,13 @@ class ScreensController {
                         intent.getBooleanExtra("long", false));
             }
         }, new android.content.IntentFilter(ButtonActions.ACTION), Context.RECEIVER_NOT_EXPORTED);
+        // A button of the controller set to run a macro: the system (patch 0025) names it.
+        mContext.registerReceiver(new android.content.BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, android.content.Intent intent) {
+                Macros.run(mContext, intent.getIntExtra("id", 0));
+            }
+        }, new android.content.IntentFilter(Macros.ACTION_RUN), Context.RECEIVER_NOT_EXPORTED);
         // Long press of the swap button: the controller goes to the other screen.
         mContext.registerReceiver(new android.content.BroadcastReceiver() {
             @Override

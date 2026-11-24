@@ -41,6 +41,7 @@ public class SectionActivity extends Activity {
     static final String CONTROLLER = "controller";
     static final String UPDATES = "updates";
     static final String MOTION = "motion";
+    static final String ROOT = "root";
 
     private static final String[] DELAYS = {"Never", "1 min", "5 min", "15 min", "30 min", "1 h"};
     private static final String[] DELAY_VALUES = {"0", "1", "5", "15", "30", "60"};
@@ -109,6 +110,9 @@ public class SectionActivity extends Activity {
             case MOTION:
                 motion(ui, page);
                 break;
+            case ROOT:
+                rootPage(ui, page);
+                break;
             default:
                 tools(ui, page);
                 break;
@@ -147,7 +151,7 @@ public class SectionActivity extends Activity {
                     PartsPrefs.SCREEN_BOTH}, PartsPrefs.SCREEN_MAIN);
         final LinearLayout saver = ui.card(page);
         ui.switchRow(saver, "🔋", Ui.GREEN, "Enable with Battery Saver",
-                "Follows Battery Saver",
+                "Turns on with Android's Battery Saver",
                 PartsPrefs.SMART_PIXELS_ON_SAVER, false);
         ui.dependOn(main, options);
 
@@ -212,29 +216,31 @@ public class SectionActivity extends Activity {
                 PartsPrefs.TOUCH_THRESHOLD,
                 new String[] {"Very high", "High", "Normal", "Low", "Very low"},
                 new String[] {"60", "90", "120", "150", "180"}, "120");
-        ui.note(page, "Lower it if the screen reacts to a finger that only hovers.");
+        ui.note(page, "Lower it if the screen reacts to a finger that is only near.");
 
         ui.section(page, "Layout");
         final LinearLayout layout = ui.card(page);
         ui.valueSwitchRow(layout, "⇄", Ui.BLUE, "Swap the screens",
                 "The two screens trade places",
                 () -> Screens.isSwapped(this), on -> Screens.setSwapped(this, on));
-        ui.valueChoiceRow(layout, "🖥️", Ui.PURPLE, "Screen mode",
+        ui.setSummary(ui.valueChoiceRow(layout, "🖥️", Ui.PURPLE, "Screen mode",
                 new String[] {"Both", "Top, cursor", "Top, touchpad", "Bottom only"},
                 new String[] {Screens.MODE_BOTH, Screens.MODE_TOP_CURSOR,
                     Screens.MODE_TOP_TOUCHPAD, Screens.MODE_BOTTOM},
-                () -> Screens.screenMode(this), mode -> Screens.setScreenMode(this, mode));
-        ui.valueChoiceRow(layout, "🎮", Ui.ORANGE, "Controller focus",
+                () -> Screens.screenMode(this), mode -> Screens.setScreenMode(this, mode)),
+                "Both screens, the top one (the bottom one as cursor or touchpad), or the bottom one");
+        ui.setSummary(ui.valueChoiceRow(layout, "🎮", Ui.ORANGE, "Controller focus",
                 new String[] {"Automatic", "Top screen", "Bottom screen"},
                 new String[] {Screens.FOCUS_AUTO, Screens.FOCUS_TOP, Screens.FOCUS_BOTTOM},
                 () -> prefs.getString(PartsPrefs.FOCUS_LOCK, Screens.FOCUS_AUTO), lock -> {
                     prefs.edit().putString(PartsPrefs.FOCUS_LOCK, lock).apply();
                     Screens.applyFocusLock(this, true);
-                });
+                }), "Which screen the controller buttons act on");
         ui.switchRow(layout, "🕹️", Ui.ORANGE, "Keep the controller on the game",
-                "The overlay is used by touch; the controller stays on the game", PartsPrefs.OVERLAY_GAME_FOCUS, true);
+                "Using the overlay does not take the controller from the game",
+                PartsPrefs.OVERLAY_GAME_FOCUS, true);
         ui.switchRow(layout, "👆", Ui.TEAL, "Swipe back on the second screen",
-                "Swipe in from the left or right edge to go back", PartsPrefs.SECOND_GESTURES, true);
+                "Bottom screen: swipe in from an edge to go back", PartsPrefs.SECOND_GESTURES, true);
     }
 
     private static final int REQUEST_WALLPAPER_TOP = 2;
@@ -251,7 +257,8 @@ public class SectionActivity extends Activity {
                 new String[] {"4", "5", "6", "7"}, new String[] {"4", "5", "6", "7"}, "5");
         ui.choiceRow(grid, "🔳", Ui.PURPLE, "Rows per page", PartsPrefs.LAUNCHER_ROWS,
                 new String[] {"2", "3", "4", "5"}, new String[] {"2", "3", "4", "5"}, "3");
-        ui.note(page, "Swipe sideways for more pages. Hold an app to make a folder.");
+        ui.note(page, "Swipe sideways for more pages. Tap an app to open it, see its info or put it "
+                + "in a folder.");
 
         ui.section(page, "Wallpapers");
         final LinearLayout wallpapers = ui.card(page);
@@ -404,14 +411,18 @@ public class SectionActivity extends Activity {
     private void battery(Ui ui, LinearLayout page) {
         setTitle("Battery & radios");
         ui.hero(page, "🔋", Ui.GREEN, "Battery & radios",
-                "Turns Wi-Fi and Bluetooth off when you are not using the console");
+                "Battery health, charge limit and radios (Wi-Fi, Bluetooth)");
 
         batteryInfo(ui, page);
         chargingLed(ui, page);
+        final LinearLayout stats = ui.card(page);
+        ui.actionRow(stats, "📊", Ui.BLUE, "Battery stats",
+                "Live power, and what the battery lost while asleep",
+                () -> startActivity(new Intent(this, BatteryStatsActivity.class)));
 
         ui.section(page, "After the screen goes off");
         final LinearLayout screen = ui.card(page);
-        ui.choiceRow(screen, "⏱️", Ui.BLUE, "Turn off after",
+        ui.choiceRow(screen, "⏱️", Ui.BLUE, "Wait before turning off",
                 PartsPrefs.SUSPEND_DELAY_MIN, DELAYS, DELAY_VALUES, "0");
         ui.switchRow(screen, "📶", Ui.TEAL, "Wi-Fi",
                 "Back on when the screen turns on",
@@ -420,7 +431,7 @@ public class SectionActivity extends Activity {
                 "Back on when the screen turns on",
                 PartsPrefs.SUSPEND_BLUETOOTH, false);
         ui.switchRow(screen, "🔌", Ui.ORANGE, "Only on battery",
-                "Not while charging",
+                "Not while a cable is plugged in",
                 PartsPrefs.SUSPEND_ONLY_ON_BATTERY, true);
 
         ui.section(page, "Charging");
@@ -435,7 +446,12 @@ public class SectionActivity extends Activity {
                 null);
         ui.note(page, chargeState != null ? chargeState
                 : "Charging restarts 3 points under the limit.");
+        ui.note(page, "It holds on a USB-C PD charger, and on a computer USB port while the "
+                + "console rests.");
         final SharedPreferences chargePrefs = PartsPrefs.get(this);
+        ui.actionRow(charging, "⚡", Ui.ORANGE, "Charge fully once",
+                ChargeLimitController.describeFullCharge(this, chargePrefs),
+                () -> fullChargeDialog(chargePrefs));
         final Ui.Row bypassRow = ui.valueChoiceRow(charging, "🔌", Ui.PURPLE,
                 "Run on the charger",
                 new String[] {"Off", "While playing", "Always"},
@@ -443,12 +459,12 @@ public class SectionActivity extends Activity {
                 () -> ChargeLimitController.bypassMode(chargePrefs),
                 mode -> chargePrefs.edit().putString(ChargeLimitController.PREF_BYPASS, mode)
                         .apply());
-        ui.setSummary(bypassRow, "The console runs on the charger and the battery rests "
-                + "instead of charging: while playing above 50 %, always above the level of "
-                + "Charge up to. Needs a fast (USB-C PD) charger");
+        ui.setSummary(bypassRow, "The charger powers the console and the battery rests. "
+                + "While playing: above 50 %. Always: above the charge limit. Needs a USB-C PD "
+                + "charger");
         ui.switchRow(charging, "🔌", Ui.BLUE, "Never power the USB port",
-                "Stops the console from draining its battery into a cable that is plugged "
-                + "to nothing, for example a computer that is off",
+                "Keeps the console from emptying its battery into a cable that goes "
+                + "nowhere, such as a computer that is off",
                 PartsPrefs.USB_POWER_GUARD, true);
         final String guardLast = PartsPrefs.get(this).getString(PartsPrefs.USB_POWER_GUARD_LAST,
                 null);
@@ -458,8 +474,8 @@ public class SectionActivity extends Activity {
         final LinearLayout bluetooth = ui.card(page);
         ui.choiceRow(bluetooth, "🎧", Ui.PURPLE, "Off when no device is connected",
                 PartsPrefs.BT_IDLE_OFF_MIN, DELAYS, DELAY_VALUES, "0");
-        ui.note(page, "Google's Nearby keeps scanning over Bluetooth, which stops the console "
-                + "from sleeping. This turns Bluetooth off when nothing is connected.");
+        ui.note(page, "Google's Nearby keeps Bluetooth scanning and the console awake. This turns "
+                + "Bluetooth off when nothing is connected.");
     }
 
     private static final String POWER_SUPPLY = "/sys/class/power_supply/battery/";
@@ -487,6 +503,10 @@ public class SectionActivity extends Activity {
                 : info.state() != null ? info.state() : plugged ? "plugged in" : "on battery";
         state = Character.toUpperCase(state.charAt(0)) + state.substring(1) + " · "
                 + info.signedWatts();
+        final int real = level < 0 ? level : ChargeLimitController.realLevel(level);
+        if (real < level) {
+            state += " · real charge " + real + " % (the charger reports full)";
+        }
         ui.row(card, "🔋", Ui.GREEN, level < 0 ? "Battery" : level + " %", state);
         ui.progressBar(card, level, level <= 15 ? Ui.RED : level <= 30 ? Ui.ORANGE : Ui.GREEN);
 
@@ -503,10 +523,13 @@ public class SectionActivity extends Activity {
                     design / 1000);
         }
         ui.row(card, "❤️", Ui.RED, "Health", wear);
-        final long cycles = PerfOverlayController.readLong(POWER_SUPPLY + "cycle_count", -1);
-        if (cycles >= 0) {
-            ui.row(card, "🔁", Ui.PURPLE, "Charge cycles", Long.toString(cycles));
-        }
+        // The gauge of the console counts far too few cycles (5 after weeks of daily charges):
+        // the cycles are counted by PocketDS Extra, the gauge is shown next to them.
+        ui.row(card, "🔁", Ui.PURPLE, "Charge cycles", CycleCounter.describe(PartsPrefs.get(this),
+                PerfOverlayController.readLong(POWER_SUPPLY + "cycle_count", -1)));
+        ui.switchRow(card, "⚠️", Ui.ORANGE, "Warn when the battery is worn",
+                "A notification at 80, 70 and 60 % of its capacity when new",
+                BatteryHealth.PREF, true);
     }
 
     private static String healthLabel(int health) {
@@ -579,9 +602,8 @@ public class SectionActivity extends Activity {
                 value -> prefs.edit().putInt(LedController.PREF_NIGHT_LEVEL,
                         Integer.parseInt(value)).apply());
         ui.dependOn(nightSwitch, hours.view, level.view);
-        ui.note(page, "Otherwise the LED lights up white when you touch the console; 0 % keeps "
-                + "it off. Notification colours are set per app in Settings > Notifications. "
-                + "The colours of the automation rules use the same brightness.");
+        ui.note(page, "At night the LED uses this brightness; 0 % keeps it off. Notification "
+                + "colours are set per app in Settings > Notifications.");
     }
 
     private static int ledColor(String color) {
@@ -647,18 +669,21 @@ public class SectionActivity extends Activity {
         ui.choiceRow(card, "🌙", Ui.PURPLE, "After the screen is off",
                 PartsPrefs.POWEROFF_SCREEN_MIN, DELAYS, DELAY_VALUES, "0");
         ui.switchRow(card, "🔌", Ui.GREEN, "Only on battery",
-                "For the screen-off delay: not while charging",
+                "Screen-off delay only: not while a cable is plugged in",
                 PartsPrefs.POWEROFF_ONLY_ON_BATTERY, true);
+        ui.switchRow(card, "📕", Ui.ORANGE, "Lid: also when plugged in",
+                "A closed lid powers off even on a charger or a computer, unless data moves "
+                + "over USB", PartsPrefs.POWEROFF_LID_PLUGGED, true);
         ui.switchRow(card, "🎮", Ui.BLUE, "Sleep during a game",
-                "A game open: sleep and resume it, power off under 10 %",
+                "With a game open, sleep instead of powering off (below 10 %: power off)",
                 PartsPrefs.POWEROFF_KEEP_GAME, true);
         ui.choiceRow(card, "⏳", Ui.ORANGE, "Power off the game anyway after",
                 PartsPrefs.POWEROFF_GAME_MAX_MIN,
                 new String[] {"Never", "30 min", "1 h", "2 h", "4 h", "8 h"},
                 new String[] {"0", "30", "60", "120", "240", "480"}, "0");
-        ui.note(page, "Lid closed: powers off even when plugged in, unless data is moving over USB "
-                + "(checked again every 5 min) or a game is open. Lid open and charging: never "
-                + "powers off. Opening the lid or waking the screen cancels the countdown.");
+        ui.note(page, "Opening the lid or waking the screen cancels the countdown. While data "
+                + "moves over USB or a game is open, the lid rule is checked again every 5 "
+                + "minutes.");
     }
 
     private final Handler mUpdateHandler = new Handler(Looper.getMainLooper());
@@ -821,7 +846,8 @@ public class SectionActivity extends Activity {
                 final String signature = Updates.sState + "/" + Updates.sPercent + "/"
                         + Updates.sMessage + "/" + Updates.restartPending(SectionActivity.this)
                         + "/" + Updates.lastChecked(SectionActivity.this) + "/"
-                        + Updates.url(SectionActivity.this);
+                        + Updates.url(SectionActivity.this) + "/"
+                        + Updates.reminderState(SectionActivity.this);
                 if (!signature.equals(shown[0])) {
                     shown[0] = signature;
                     body.removeAllViews();
@@ -867,6 +893,20 @@ public class SectionActivity extends Activity {
                         startForegroundService(new Intent(this, UpdateService.class));
                         Toast.makeText(this, "Update started", Toast.LENGTH_SHORT).show();
                     });
+            final long snoozed = Updates.snoozedUntil(this);
+            final boolean skipped = Updates.skipped(this, info);
+            if (snoozed > 0) {
+                ui.row(now, "⏰", Ui.ORANGE, "Reminders paused", "Until "
+                        + android.text.format.DateFormat.getMediumDateFormat(this)
+                                .format(new java.util.Date(snoozed))
+                        + ": no notification and no installation by itself");
+            } else if (skipped) {
+                ui.row(now, "⏭️", Ui.ORANGE, "Version skipped",
+                        "You are told again when the next one is out");
+            }
+            ui.actionRow(now, "⏰", Ui.PURPLE, snoozed > 0 || skipped ? "Change the reminder"
+                    : "Remind me later", "Not now: no notification and no installation by "
+                    + "itself for a while", () -> remindMeLater(info, snoozed > 0 || skipped));
         } else {
             final long checked = Updates.lastChecked(this);
             ui.row(now, "✅", Ui.GREEN, "Up to date", checked == 0 ? "Not checked yet"
@@ -899,14 +939,206 @@ public class SectionActivity extends Activity {
         ui.switchRow(auto, "⬇️", Ui.GREEN, "Install by itself",
                 "Download and install in the background on Wi-Fi, charging or above 50 %",
                 Updates.PREF_AUTO_INSTALL, false);
+        if (!android.os.SystemProperties.get("ro.pocketds.stats_url", "").isEmpty()) {
+            ui.switchRow(auto, "📊", Ui.TEAL, "Count this console",
+                    "Once a day, a random number and the system version are sent, nothing else. "
+                    + "It shows which versions are in use",
+                    VersionCount.PREF_ENABLED, true);
+        }
         ui.section(body, "Update source");
         final LinearLayout source = ui.card(body);
         ui.actionRow(source, "🔗", Ui.PURPLE, Updates.customUrl(this) ? "Custom source"
                 : "Default source", Updates.url(this), this::editUpdateSource);
         ui.note(body, "For your own build: a GitHub repository (owner/repo) or the https address "
                 + "of its update.json.");
+
+        ui.section(body, "Add-ons");
+        final LinearLayout addons = ui.card(body);
+        ui.actionRow(addons, "🧩", Ui.PURPLE, "Check the add-ons", "TurnipZ GPU driver "
+                + GpuDriverPack.currentVersion(this) + " and the Obtainium emulator list",
+                this::checkAddons);
+        ui.note(body, "Downloaded from GitHub only when you ask, without a new system. The "
+                + "driver goes to Eden and Citron; the list is saved in Downloads, to import "
+                + "in Obtainium.");
         ui.note(body, "The console never restarts by itself. A failed update leaves the current "
                 + "version as it is.");
+
+        // The console is not certified by Google: its Google services (GSF) ID can be registered on
+        // Google's own page for custom systems, then the Play Store treats it as certified.
+        final String gsf = gsfId();
+        if (gsf != null) {
+            ui.section(body, "Google Play certification");
+            final LinearLayout play = ui.card(body);
+            ui.actionRow(play, "🆔", Ui.BLUE, "Google services ID", gsf + "  ·  tap to copy", () -> {
+                getSystemService(android.content.ClipboardManager.class).setPrimaryClip(
+                        android.content.ClipData.newPlainText("GSF ID", gsf));
+                Toast.makeText(this, "ID copied", Toast.LENGTH_SHORT).show();
+            });
+            ui.actionRow(play, "✅", Ui.GREEN, "Register this console",
+                    "If the Play Store says the device is not certified: paste the ID on Google's "
+                    + "page, wait a few minutes, then clear the storage of the Play Store",
+                    () -> openPage("https://www.google.com/android/uncertified"));
+        }
+    }
+
+    private void showShutdownLog() {
+        final String text = ShutdownLog.read(this).trim();
+        new android.app.AlertDialog.Builder(this).setTitle("Power-off log · last 2 days")
+                .setMessage(text.isEmpty() ? "Nothing yet." : text)
+                .setPositiveButton("OK", null).show();
+    }
+
+    /** Looks at GitHub for a newer TurnipZ driver and Obtainium emulator list. */
+    private void checkAddons() {
+        Toast.makeText(this, "Checking…", Toast.LENGTH_SHORT).show();
+        final Handler main = new Handler(Looper.getMainLooper());
+        new Thread(() -> {
+            final Addons.Status status = Addons.check(this);
+            main.post(() -> {
+                if (status.turnip == null && status.pack == null) {
+                    Toast.makeText(this, "Cannot reach GitHub", Toast.LENGTH_LONG).show();
+                } else if (!status.turnipNewer && !status.packNewer) {
+                    Toast.makeText(this, "The add-ons are up to date", Toast.LENGTH_LONG).show();
+                } else {
+                    offerAddons(status);
+                }
+            });
+        }, "pocketds-addons").start();
+    }
+
+    private void offerAddons(Addons.Status status) {
+        final StringBuilder text = new StringBuilder();
+        if (status.turnipNewer) {
+            text.append("TurnipZ GPU driver ").append(GpuDriverPack.currentVersion(this))
+                    .append(" → ").append(status.turnip.version).append(" (")
+                    .append(Updates.size(status.turnip.size)).append(")\n");
+        }
+        if (status.packNewer) {
+            text.append("Obtainium emulator list ").append(status.pack.version).append(" (")
+                    .append(Updates.size(status.pack.size)).append(")\n");
+        }
+        new android.app.AlertDialog.Builder(this).setTitle("Add-on updates")
+                .setMessage(text.toString().trim())
+                .setPositiveButton("Download", (d, w) -> downloadAddons(status))
+                .setNegativeButton("Later", null).show();
+    }
+
+    private void downloadAddons(Addons.Status status) {
+        Toast.makeText(this, "Downloading…", Toast.LENGTH_SHORT).show();
+        final Handler main = new Handler(Looper.getMainLooper());
+        new Thread(() -> {
+            final StringBuilder result = new StringBuilder();
+            if (status.turnipNewer) {
+                final String error = Addons.updateDriver(this, status.turnip);
+                result.append(error != null ? error : "TurnipZ " + status.turnip.version
+                        + " added to the emulators").append('\n');
+            }
+            if (status.packNewer) {
+                final String error = Addons.savePack(this, status.pack);
+                result.append(error != null ? error : "Saved in Downloads: " + status.pack.file
+                        + ". In Obtainium: Import/Export > Import from file").append('\n');
+            }
+            main.post(() -> new android.app.AlertDialog.Builder(this).setTitle("Add-ons")
+                    .setMessage(result.toString().trim()).setPositiveButton("OK", null).show());
+        }, "pocketds-addons").start();
+    }
+
+    /** A full charge for a trip or a long session: now, or ready at a time. */
+    private void fullChargeDialog(SharedPreferences prefs) {
+        final boolean planned = prefs.getLong(ChargeLimitController.PREF_FULL_UNTIL, 0)
+                > System.currentTimeMillis();
+        final java.util.List<String> labels = new java.util.ArrayList<>();
+        labels.add("Charge to 100 % now");
+        labels.add("Be at 100 % at a time…");
+        if (planned) labels.add("Cancel");
+        new android.app.AlertDialog.Builder(this).setTitle("Charge fully once")
+                .setItems(labels.toArray(new String[0]), (dialog, which) -> {
+                    final long now = System.currentTimeMillis();
+                    if (which == 0) {
+                        ChargeLimitController.planFullCharge(prefs, now,
+                                now + ChargeLimitController.FULL_NOW_MAX_MS);
+                        recreate();
+                    } else if (which == 1) {
+                        final java.util.Calendar soon = java.util.Calendar.getInstance();
+                        new android.app.TimePickerDialog(this, (picker, hour, minute) -> {
+                            final java.util.Calendar at = java.util.Calendar.getInstance();
+                            at.set(java.util.Calendar.HOUR_OF_DAY, hour);
+                            at.set(java.util.Calendar.MINUTE, minute);
+                            at.set(java.util.Calendar.SECOND, 0);
+                            // the next time it is that hour
+                            if (at.getTimeInMillis() <= System.currentTimeMillis()) {
+                                at.add(java.util.Calendar.DAY_OF_MONTH, 1);
+                            }
+                            final long ready = at.getTimeInMillis();
+                            ChargeLimitController.planFullCharge(prefs, Math.max(
+                                    System.currentTimeMillis(),
+                                    ready - ChargeLimitController.FULL_LEAD_MS), ready);
+                            Toast.makeText(this, "Charging starts "
+                                    + ChargeLimitController.FULL_LEAD_MS / 3_600_000L
+                                    + " hours before", Toast.LENGTH_LONG).show();
+                            recreate();
+                        }, soon.get(java.util.Calendar.HOUR_OF_DAY),
+                                soon.get(java.util.Calendar.MINUTE), true).show();
+                    } else {
+                        ChargeLimitController.cancelFullCharge(prefs);
+                        recreate();
+                    }
+                }).show();
+    }
+
+    /** "Remind me later": how long, or skip this version. */
+    private void remindMeLater(Updates.Info info, boolean paused) {
+        final java.util.List<String> labels = new java.util.ArrayList<>();
+        final java.util.List<Long> days = new java.util.ArrayList<>();
+        if (paused) {
+            labels.add("Remind me as usual");
+            days.add(0L);
+        }
+        final String[] names = {"In 1 day", "In 7 days", "In 14 days", "In 1 month"};
+        final long[] counts = {1, 7, 14, 30};
+        for (int i = 0; i < names.length; i++) {
+            labels.add(names[i]);
+            days.add(counts[i]);
+        }
+        labels.add("Skip this version");
+        days.add(-1L);
+        new android.app.AlertDialog.Builder(this).setTitle("Remind me later")
+                .setItems(labels.toArray(new String[0]), (dialog, which) -> {
+                    final long chosen = days.get(which);
+                    if (chosen == 0) {
+                        Updates.remindAgain(this);
+                    } else if (chosen < 0) {
+                        Updates.skip(this, info);
+                    } else {
+                        Updates.snooze(this, chosen * 86_400_000L);
+                    }
+                }).show();
+    }
+
+    /** The Google services framework ID (decimal), null without Google services. */
+    private String gsfId() {
+        try (android.database.Cursor c = getContentResolver().query(
+                android.net.Uri.parse("content://com.google.android.gsf.gservices"), null, null,
+                new String[] {"android_id"}, null)) {
+            if (c != null && c.moveToFirst() && c.getColumnCount() >= 2) {
+                final String id = c.getString(1);
+                if (id != null && !id.isEmpty() && !id.equals("0")) return id;
+            }
+        } catch (RuntimeException e) {
+            // no Google services, or no access
+        }
+        return null;
+    }
+
+    private void openPage(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (android.content.ActivityNotFoundException e) {
+            getSystemService(android.content.ClipboardManager.class).setPrimaryClip(
+                    android.content.ClipData.newPlainText("link", url));
+            Toast.makeText(this, "No browser: link copied (" + url + ")", Toast.LENGTH_LONG).show();
+        }
     }
 
     /** The three steps of an update, each done, running or waiting (step = the one running). */
@@ -954,13 +1186,18 @@ public class SectionActivity extends Activity {
     private void tools(Ui ui, LinearLayout page) {
         setTitle("Tools & logs");
         ui.hero(page, "🧰", Ui.GREY, "Tools & logs",
-                "Everything needed to report a problem");
+                "Logs, backups and the performance overlay");
         final LinearLayout card = ui.card(page);
         ui.actionRow(card, "📦", Ui.BLUE, "Collect all the logs",
                 "Logcat, kernel log and system information in Downloads/PocketDS, to share",
                 () -> LogCollector.collect(this, true, true, true));
         ui.actionRow(card, "📜", Ui.TEAL, "Collect the logcat only",
                 "Faster and smaller", () -> LogCollector.collect(this, true, false, false));
+        ui.actionRow(card, "🕘", Ui.ORANGE, "Power-off log", ShutdownLog.summary(this),
+                this::showShutdownLog);
+        ui.switchRow(card, "🗂️", Ui.GREY, "Keep the system log",
+                "Warnings of the last 2 days (6 MB at most), kept after a restart and added to "
+                + "the reports", SystemLog.PREF, true);
 
         ui.section(page, "Performance");
         final LinearLayout perf = ui.card(page);
@@ -983,6 +1220,13 @@ public class SectionActivity extends Activity {
                 });
         ui.note(page, "Copy the file out of the console before a wipe, then restore it afterwards.");
 
+        ui.section(page, "Root");
+        final LinearLayout root = ui.card(page);
+        ui.actionRow(root, "🛡️", Ui.PURPLE, "Root modules",
+                "KernelSU Next, SUSFS, Zygisk and the modules installed (read only)",
+                () -> startActivity(new Intent(this, SectionActivity.class)
+                        .putExtra(EXTRA_SECTION, ROOT)));
+
         ui.section(page, "Emulators");
         final LinearLayout emus = ui.card(page);
         ui.actionRow(emus, "💾", Ui.GREEN, "Back up the emulators",
@@ -992,6 +1236,71 @@ public class SectionActivity extends Activity {
                 "Put back the newest archive (the emulators are stopped first)",
                 this::restoreEmulators);
         ui.note(page, "Games are not copied, only the data of the emulators.");
+    }
+
+    /** What runs as root: KernelSU Next, SUSFS, Zygisk and the modules. Nothing can be changed. */
+    private void rootPage(Ui ui, LinearLayout page) {
+        setTitle("Root modules");
+        ui.hero(page, "🛡️", Ui.PURPLE, "Root modules",
+                "What runs as root on the console. Change it in KernelSU Next");
+        final LinearLayout state = ui.card(page);
+        final Ui.Row loading = ui.row(state, "⏳", Ui.ORANGE, "Reading…", null);
+        final LinearLayout modules = new LinearLayout(this);
+        modules.setOrientation(LinearLayout.VERTICAL);
+        page.addView(modules);
+        final Handler main = new Handler(Looper.getMainLooper());
+        new Thread(() -> {
+            final String text = LogCollector.rootState();
+            main.post(() -> {
+                state.removeAllViews();
+                if (text.trim().isEmpty()) {
+                    ui.row(state, "⚠️", Ui.RED, "Root not available",
+                            "Open KernelSU Next once, then come back");
+                    return;
+                }
+                String section = "";
+                final java.util.List<String[]> mods = new java.util.ArrayList<>();
+                final StringBuilder susfs = new StringBuilder();
+                String ksu = "";
+                boolean zygisk = false;
+                for (String line : text.split("\n")) {
+                    final String l = line.trim();
+                    if (l.startsWith("== ")) {
+                        section = l.substring(3);
+                        continue;
+                    }
+                    if (l.isEmpty()) continue;
+                    switch (section) {
+                        case "ksud": ksu = l; break;
+                        case "susfs":
+                            if (susfs.length() < 160) susfs.append(susfs.length() > 0 ? " · " : "")
+                                    .append(l);
+                            break;
+                        case "modules": {
+                            final int space = l.indexOf(' ');
+                            mods.add(space < 0 ? new String[] {l, ""}
+                                    : new String[] {l.substring(0, space), l.substring(space + 1)});
+                            break;
+                        }
+                        case "zygisk": zygisk = true; break;
+                        default: break;
+                    }
+                }
+                ui.row(state, "🛡️", Ui.PURPLE, "KernelSU Next", ksu.isEmpty() ? "Installed" : ksu);
+                ui.row(state, "🫥", Ui.TEAL, "SUSFS (root hiding)",
+                        susfs.length() == 0 ? "Not loaded" : susfs.toString());
+                ui.row(state, "🧬", Ui.BLUE, "Zygisk", zygisk ? "Running" : "Not running");
+                ui.section(modules, mods.isEmpty() ? "No module installed" : "Modules");
+                if (!mods.isEmpty()) {
+                    final LinearLayout card = ui.card(modules);
+                    for (String[] m : mods) {
+                        final boolean off = m[1].contains("[off]");
+                        ui.row(card, off ? "⏸️" : "🧩", off ? Ui.GREY : Ui.GREEN, m[0],
+                                (off ? "Off · " : "On · ") + m[1].replace("[off]", "").trim());
+                    }
+                }
+            });
+        }, "pocketds-root").start();
     }
 
     private void backupEmulators() {
@@ -1074,14 +1383,41 @@ public class SectionActivity extends Activity {
         ui.actionRow(apps, "➕", Ui.GREEN, "Add an application",
                 "Pick an app, then its game profile", () -> addAppDialog(prefs, pm));
 
+        ui.section(page, "Fan curve");
+        final LinearLayout fan = ui.card(page);
+        final SharedPreferences fanPrefs = PartsPrefs.get(this);
+        ui.switchRow(fan, "🌀", Ui.TEAL, "Own fan curve",
+                "Replaces the Mute and Balance curves. Off and Turbo stay as they are, and the "
+                + "fan is at full speed above 85 °C", PartsPrefs.FAN_CURVE_ON, false);
+        final int[] own = FanController.ownPercents(fanPrefs.getString(PartsPrefs.FAN_CURVE, ""));
+        for (int i = 0; i < FanController.OWN_TEMPS.length; i++) {
+            final int point = i;
+            final Ui.Row[] row = new Ui.Row[1];
+            row[0] = ui.actionRow(fan, "🌡️", Ui.ORANGE, "At " + FanController.OWN_TEMPS[i]
+                    + " °C", own[i] + " % of the fan speed", () -> {
+                        final int[] now = FanController.ownPercents(
+                                fanPrefs.getString(PartsPrefs.FAN_CURVE, ""));
+                        ui.sliderDialog("Fan speed at " + FanController.OWN_TEMPS[point] + " °C",
+                                " %", 0, 100, now[point], value -> {
+                                    now[point] = value;
+                                    final int[] fixed = FanController.ownPercents(
+                                            java.util.Arrays.toString(now).replaceAll("[\\[\\] ]", ""));
+                                    fanPrefs.edit().putString(PartsPrefs.FAN_CURVE,
+                                            java.util.Arrays.toString(fixed).replaceAll(
+                                                    "[\\[\\] ]", "")).apply();
+                                    recreate();
+                                });
+                    });
+        }
+        ui.note(page, "The speed rises from one point to the next and never goes down as the "
+                + "temperature rises. Below 40 °C the first value is used.");
+
         ui.section(page, "Driver Turnip");
         final LinearLayout drivers = ui.card(page);
         ui.switchRow(drivers, "🧩", Ui.PURPLE, "TurnipZ for Eden and Citron",
-                "Adds the TurnipZ driver (third party) to their driver list. Nothing changes "
-                + "until you pick it there", PartsPrefs.GPU_DRIVER_PACK, true);
-        ui.note(page, "Leaving an app brings back your previous profile and controller setup. "
-                + "The minimum GPU speed starts at 85 % of the profile's maximum, then follows "
-                + "the frame rate.");
+                "Adds the TurnipZ GPU driver to their list. Nothing changes until you pick it "
+                + "there", PartsPrefs.GPU_DRIVER_PACK, true);
+        ui.note(page, "Leaving an app restores your previous profile and controller setup.");
     }
 
     private void openSetup(String id) {
@@ -1166,7 +1502,8 @@ public class SectionActivity extends Activity {
         ui.section(page, "GPU");
         final LinearLayout gpu = ui.card(page);
         ui.valueSwitchRow(gpu, "⚡", Ui.TEAL, "Minimum GPU speed",
-                "Keeps the GPU from dropping too low, and follows the frame rate",
+                "Keeps the GPU from dropping too low: starts at 85 % of the maximum, then follows the "
+                + "frame rate",
                 () -> s.gpu, on -> {
                     s.gpu = on;
                     GameSetups.update(prefs, s);
@@ -1253,6 +1590,9 @@ public class SectionActivity extends Activity {
                 "Used when an app has no profile: tap a button on the console drawing", () -> startActivity(new Intent(this,
                         ControllerMapActivity.class)));
         final LinearLayout tools = ui.card(page);
+        ui.actionRow(tools, "⌨️", Ui.PURPLE, "Macros",
+                "Keyboard keys and key sequences for a button: any key, Ctrl+S, F5...", () ->
+                        startActivity(new Intent(this, MacrosActivity.class)));
         ui.actionRow(tools, "🎯", Ui.ORANGE, "Test the buttons",
                 "The console lights each button and stick as you press it", () ->
                         startActivity(new Intent(this, ControllerTestActivity.class)));

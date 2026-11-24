@@ -7,9 +7,18 @@ hal_client_domain(system_app, hal_gamepad)
 # PocketDS Parts: touch threshold / charger mode of the main screen controller
 allow system_app sysfs_touchpanel:file rw_file_perms;
 
-# AYAHome / AYAWindow performance overlay: FPS and GPU clock counters
-allow system_app vendor_sysfs_graphics:file r_file_perms;
+# PocketDS Extra performance overlay: FPS and GPU clock counters; brightness of the bottom screen
+# (written there)
+allow system_app vendor_sysfs_graphics:dir search;
+allow system_app vendor_sysfs_graphics:file rw_file_perms;
 allow system_app vendor_sysfs_kgsl_gpuclk:file r_file_perms;
+# PocketDS Extra: GPU load and available frequencies (overlay, GPU floor of the profiles)
+r_dir_file(system_app, vendor_sysfs_kgsl)
+# PocketDS Extra: battery card, charge limit, cycle count, LED (current, voltage, capacity)
+r_dir_file(system_app, vendor_sysfs_battery_supply)
+# PocketDS Extra: LED of the charging port. Only the folder can be searched: Android forbids a
+# platform domain to read the LED files (coredomain.te neverallow), the LED goes through root.
+allow system_app sysfs_leds:dir search;
 # The overlay also reads /proc/stat, /proc/sys/kernel/pid_max and runs "top": platform types
 # (proc_stat, proc_pid_max, other domains' /proc entries) that vendor policy cannot allow;
 # when going to enforcing, check that it still works (denials seen while permissive).

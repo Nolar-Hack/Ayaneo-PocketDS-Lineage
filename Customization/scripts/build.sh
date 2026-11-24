@@ -252,6 +252,7 @@ run_m() {
                 $($BRINGUP && echo WITH_ADB_INSECURE=true) \
                 POCKETDS_GAPPS="$GAPPS" \
                 POCKETDS_UPDATE_URL="${UPDATE_URL:-}" \
+                POCKETDS_STATS_URL="${STATS_URL:-}" \
             bash -c "source build/envsetup.sh >/dev/null && \
                      lunch lineage_pocket_ds-cp2a-$VARIANT >/dev/null && \
                      m -j$JOBS $targets"

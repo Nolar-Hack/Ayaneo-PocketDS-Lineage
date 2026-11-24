@@ -191,6 +191,20 @@ final class PagedGrid extends FrameLayout {
 
     // ---- paging
 
+    private final TapGuard mGuard = new TapGuard();
+
+    /** A false touch of the panel (a few ms, nobody there) must not open an app. */
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        if (mGuard.isGhostUp(event)) {
+            final MotionEvent cancel = TapGuard.cancelOf(event);
+            final boolean handled = super.dispatchTouchEvent(cancel);
+            cancel.recycle();
+            return handled;
+        }
+        return super.dispatchTouchEvent(event);
+    }
+
     @Override
     public boolean onInterceptTouchEvent(MotionEvent event) {
         switch (event.getActionMasked()) {

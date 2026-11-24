@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+     SPDX-FileCopyrightText: The LineageOS Project
+     SPDX-License-Identifier: Apache-2.0
+-->
+<resources>
+    <!-- LineageOS statistics (stats.lineageos.org) off unless the user turns them on: PocketDS
+         has its own count of the versions in use. The setup wizard box is unticked too
+         (patches/packages/apps/SetupWizard). -->
+    <bool name="def_stats_collection">false</bool>
+</resources>

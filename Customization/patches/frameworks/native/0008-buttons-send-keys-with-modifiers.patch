@@ -1,0 +1,161 @@
+Subject: [PATCH] inputflinger: a button of the Ayaneo Pocket DS can send a key with modifiers
+
+In persist.sys.pocketds.keymap ("scancode:keycode") the key code can carry modifiers above bit 16:
+Ctrl = 1, Alt = 2, Shift = 4, Meta = 8, times 65536 (Ctrl+S = 47 + 65536). The mapper sends the
+modifier keys down before the key and up after it, and puts them in the meta state of the key
+(and of the turbo repeats), so an app sees a real Ctrl+S from one button.
+
+diff --git a/services/inputflinger/reader/mapper/KeyboardInputMapper.cpp b/services/inputflinger/reader/mapper/KeyboardInputMapper.cpp
+--- a/services/inputflinger/reader/mapper/KeyboardInputMapper.cpp
++++ b/services/inputflinger/reader/mapper/KeyboardInputMapper.cpp
+@@ -304,6 +304,24 @@
+     return 0;
+ }
+ 
++// Ayaneo Pocket DS: a button of the console can send a key with modifiers (Ctrl+S, Alt+Enter...):
++// in persist.sys.pocketds.keymap the key code carries them above bit 16 (Ctrl 1, Alt 2, Shift 4,
++// Meta 8 times 65536). The modifier keys go down before the key and up after it.
++static const int32_t kComboKeyCodes[4] = {AKEYCODE_CTRL_LEFT, AKEYCODE_ALT_LEFT,
++                                          AKEYCODE_SHIFT_LEFT, AKEYCODE_META_LEFT};
++static const int32_t kComboMetaStates[4] = {AMETA_CTRL_ON | AMETA_CTRL_LEFT_ON,
++                                            AMETA_ALT_ON | AMETA_ALT_LEFT_ON,
++                                            AMETA_SHIFT_ON | AMETA_SHIFT_LEFT_ON,
++                                            AMETA_META_ON | AMETA_META_LEFT_ON};
++
++static int32_t comboMetaState(int32_t mods) {
++    int32_t state = 0;
++    for (int i = 0; i < 4; i++) {
++        if (mods & (1 << i)) state |= kComboMetaStates[i];
++    }
++    return state;
++}
++
+ std::list<NotifyArgs> KeyboardInputMapper::processKey(nsecs_t when, nsecs_t readTime, bool down,
+                                                       int32_t scanCode, int32_t usageCode) {
+     std::list<NotifyArgs> out;
+@@ -311,6 +329,7 @@
+     int32_t keyMetaState;
+     uint32_t policyFlags;
+     int32_t flags = AKEY_EVENT_FLAG_FROM_SYSTEM;
++    int32_t comboMods = 0;
+ 
+     std::optional<MappedKey> mappedKey = getDeviceContext().mapKey(scanCode, usageCode, mMetaState);
+     if (mappedKey) {
+@@ -342,6 +361,8 @@
+                 if (colon != std::string::npos &&
+                     atoi(pair.substr(0, colon).c_str()) == scanCode) {
+                     keyCode = atoi(pair.substr(colon + 1).c_str());
++                    comboMods = (keyCode >> 16) & 0xF;
++                    keyCode &= 0xFFFF;
+                     break;
+                 }
+                 pos = end + 1;
+@@ -375,6 +396,7 @@
+             keyCode = mKeyDowns[*keyDownIndex].keyCode;
+             downTime = mKeyDowns[*keyDownIndex].downTime;
+             flags = mKeyDowns[*keyDownIndex].flags;
++            comboMods = mKeyDowns[*keyDownIndex].comboMods;
+         } else {
+             // key down
+             if ((policyFlags & POLICY_FLAG_VIRTUAL) &&
+@@ -391,6 +413,7 @@
+             keyDown.scanCode = scanCode;
+             keyDown.downTime = when;
+             keyDown.flags = flags;
++            keyDown.comboMods = comboMods;
+             mKeyDowns.push_back(keyDown);
+         }
+         onKeyDownProcessed(downTime);
+@@ -401,6 +424,7 @@
+             keyCode = mKeyDowns[*keyDownIndex].keyCode;
+             downTime = mKeyDowns[*keyDownIndex].downTime;
+             flags = mKeyDowns[*keyDownIndex].flags;
++            comboMods = mKeyDowns[*keyDownIndex].comboMods;
+             mKeyDowns.erase(mKeyDowns.begin() + *keyDownIndex);
+         } else {
+             // key was not actually down
+@@ -421,6 +445,30 @@
+ 
+     DeviceId deviceId = getDeviceId();
+ 
++    // Ayaneo Pocket DS: the key goes with its modifiers (see comboMetaState)
++    const bool newDown = down && !keyDownIndex;
++    auto sendModifiers = [&](bool modifiersDown) {
++        // down: Ctrl, Alt, Shift, Meta in that order; up: the other way round. Each event
++        // carries the modifiers held at that moment.
++        int32_t held = modifiersDown ? 0 : comboMods;
++        for (int n = 0; n < 4; n++) {
++            const int i = modifiersDown ? n : 3 - n;
++            if (!(comboMods & (1 << i))) continue;
++            if (modifiersDown) {
++                held |= (1 << i);
++            } else {
++                held &= ~(1 << i);
++            }
++            out.emplace_back(NotifyKeyArgs(getContext()->getNextId(), when, readTime, deviceId,
++                                           getEventSource(), getDisplayId(), policyFlags,
++                                           modifiersDown ? AKEY_EVENT_ACTION_DOWN
++                                                         : AKEY_EVENT_ACTION_UP,
++                                           flags, kComboKeyCodes[i], 0,
++                                           comboMetaState(held), downTime));
++        }
++    };
++    if (comboMods != 0) keyMetaState |= comboMetaState(comboMods);
++
+     // On first down: Process key for keyboard classification (will send reconfiguration if the
+     // keyboard type change)
+     if (down && !keyDownIndex) {
+@@ -472,17 +520,22 @@
+                     const bool pressed = mTurbos[i].pressed;
+                     downTime = mTurbos[i].downTime; // the last press the apps saw
+                     mTurbos.erase(mTurbos.begin() + i);
+-                    if (!pressed) return out;
++                    if (!pressed) {
++                        sendModifiers(false);
++                        return out;
++                    }
+                     break;
+                 }
+             }
+         }
+     }
+ 
++    if (newDown) sendModifiers(true);
+     out.emplace_back(NotifyKeyArgs(getContext()->getNextId(), when, readTime, deviceId,
+                                    getEventSource(), getDisplayId(), policyFlags,
+                                    down ? AKEY_EVENT_ACTION_DOWN : AKEY_EVENT_ACTION_UP, flags,
+                                    keyCode, scanCode, keyMetaState, downTime));
++    if (!down) sendModifiers(false);
+     return out;
+ }
+ 
+@@ -629,6 +682,17 @@
+                               AKEY_EVENT_ACTION_UP, mKeyDowns[i].flags | AKEY_EVENT_FLAG_CANCELED,
+                               mKeyDowns[i].keyCode, mKeyDowns[i].scanCode, AMETA_NONE,
+                               mKeyDowns[i].downTime));
++        // Ayaneo Pocket DS: the modifiers sent with the key are let go too
++        for (int m = 3; m >= 0; m--) {
++            if (!(mKeyDowns[i].comboMods & (1 << m))) continue;
++            out.emplace_back(NotifyKeyArgs(getContext()->getNextId(), when,
++                                           systemTime(SYSTEM_TIME_MONOTONIC), getDeviceId(),
++                                           getEventSource(), getDisplayId(), /*policyFlags=*/0,
++                                           AKEY_EVENT_ACTION_UP,
++                                           mKeyDowns[i].flags | AKEY_EVENT_FLAG_CANCELED,
++                                           kComboKeyCodes[m], 0, AMETA_NONE,
++                                           mKeyDowns[i].downTime));
++        }
+     }
+     mKeyDowns.clear();
+     mTurbos.clear();
+diff --git a/services/inputflinger/reader/mapper/KeyboardInputMapper.h b/services/inputflinger/reader/mapper/KeyboardInputMapper.h
+--- a/services/inputflinger/reader/mapper/KeyboardInputMapper.h
++++ b/services/inputflinger/reader/mapper/KeyboardInputMapper.h
+@@ -60,6 +60,8 @@
+         int32_t keyCode{};
+         int32_t scanCode{};
+         int32_t flags{};
++        // Ayaneo Pocket DS: the modifiers (Ctrl 1, Alt 2, Shift 4, Meta 8) pressed with the key
++        int32_t comboMods{};
+     };
+ 
+     // The keyboard source for this mapper. Events generated should use the source shared

@@ -56,3 +56,9 @@ sh_binary {
     src: "init.pocketds.fan.sh",
     soc_specific: true,
 }
+
+sh_binary {
+    name: "init.pocketds.vbmeta.sh",
+    src: "init.pocketds.vbmeta.sh",
+    soc_specific: true,
+}

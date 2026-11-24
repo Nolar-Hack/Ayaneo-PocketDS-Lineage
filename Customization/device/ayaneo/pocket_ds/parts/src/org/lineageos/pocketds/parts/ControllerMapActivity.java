@@ -33,6 +33,7 @@ public class ControllerMapActivity extends Activity {
     private ConsoleMapView mView;
     private LinearLayout mDetail;
     private int mSelected;
+    private RemapPanel mPanel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,6 +42,33 @@ public class ControllerMapActivity extends Activity {
         mNamed = ControllerProfiles.find(PartsPrefs.get(this), mProfileId);
         mPrefs = PartsPrefs.get(this);
         mUi = new Ui(this);
+        mPanel = new RemapPanel(this, mUi, new RemapPanel.Host() {
+            @Override
+            public SparseIntArray map() {
+                return mMap;
+            }
+
+            @Override
+            public SparseIntArray turbo() {
+                return mTurbo;
+            }
+
+            @Override
+            public void mapChanged() {
+                save();
+            }
+
+            @Override
+            public void turboChanged() {
+                saveTurbo();
+            }
+
+            @Override
+            public void refresh() {
+                final ConsoleMapView.Region now = regionOfScan(mSelected);
+                if (now != null) detail(now);
+            }
+        });
         setTitle("Button remapping");
         final LinearLayout page = mUi.page(this);
         final String label = getIntent().getStringExtra(EXTRA_LABEL);
@@ -194,6 +222,8 @@ public class ControllerMapActivity extends Activity {
         final String text = ControllerProfiles.encodeMap(mMap);
         if (text.length() > MAX_CHARS) {
             Toast.makeText(this, "Too many remaps", Toast.LENGTH_SHORT).show();
+            load();
+            mView.setMap(mMap);
             return;
         }
         if (mNamed == null) {
@@ -204,6 +234,13 @@ public class ControllerMapActivity extends Activity {
         }
         mView.setMap(mMap);
         Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show();
+    }
+
+    private static ConsoleMapView.Region regionOfScan(int scan) {
+        for (ConsoleMapView.Region r : ConsoleMapView.REGIONS) {
+            if (r.scan == scan && scan != 0) return r;
+        }
+        return null;
     }
 
     private void picked(ConsoleMapView.Region region) {
@@ -258,78 +295,7 @@ public class ControllerMapActivity extends Activity {
                     mUi.textDim, false));
             return;
         }
-        final int now = mMap.get(region.scan, -1);
-        box.addView(text(region.name + (now < 0 ? " sends its own key" : " sends "
-                + targetName(now)), 18, mUi.text, true));
-        box.addView(text("Pick what it should send instead:", 14, mUi.textDim, false));
-        LinearLayout line = null;
-        for (int i = 0; i < ControllerProfiles.TARGET_NAMES.length; i++) {
-            if (i % 5 == 0) {
-                line = new LinearLayout(this);
-                final LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-                lp.topMargin = mUi.dp(10);
-                box.addView(line, lp);
-            }
-            final int code = ControllerProfiles.TARGET_CODES[i];
-            final boolean chosen = code == now;
-            final TextView pill = mUi.pill(ControllerProfiles.TARGET_NAMES[i], Ui.sAccent, chosen,
-                    v -> {
-                        mMap.put(region.scan, code);
-                        save();
-                        detail(region);
-                    });
-            final LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(0,
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            pp.rightMargin = mUi.dp(8);
-            line.addView(pill, pp);
-        }
-        final TextView normal = mUi.pill("Normal (remove the remap)", Ui.GREEN, false, v -> {
-            mMap.delete(region.scan);
-            save();
-            detail(region);
-        });
-        final LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-        np.topMargin = mUi.dp(14);
-        box.addView(normal, np);
-
-        // Turbo: held down, the button presses itself again and again, as fast as chosen
-        final int rate = mTurbo.get(region.scan, 0);
-        final TextView turboTitle = text("Turbo " + (rate == 0 ? "is off" : "· " + rate
-                + " presses per second"), 16, mUi.text, true);
-        final LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-                android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-        tp.topMargin = mUi.dp(22);
-        box.addView(turboTitle, tp);
-        box.addView(text("Hold " + region.name + ": it presses itself again and again while you "
-                + "keep it down. Pick how fast.", 14, mUi.textDim, false));
-        LinearLayout rates = null;
-        for (int i = 0; i < ControllerProfiles.TURBO_RATES.length; i++) {
-            if (i % 4 == 0) {
-                rates = new LinearLayout(this);
-                final LinearLayout.LayoutParams rl = new LinearLayout.LayoutParams(
-                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
-                rl.topMargin = mUi.dp(10);
-                box.addView(rates, rl);
-            }
-            final int value = ControllerProfiles.TURBO_RATES[i];
-            final TextView pill = mUi.pill(value == 0 ? "Off" : value + " / s", Ui.sAccent,
-                    value == rate, v -> {
-                        if (value == 0) mTurbo.delete(region.scan);
-                        else mTurbo.put(region.scan, value);
-                        saveTurbo();
-                        detail(region);
-                    });
-            final LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(0,
-                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
-            pp.rightMargin = mUi.dp(8);
-            rates.addView(pill, pp);
-        }
+        mPanel.build(box, region);
     }
 
     /** The actions of an extra button of the console, for its short or its long press. */
@@ -338,8 +304,11 @@ public class ControllerMapActivity extends Activity {
         box.addView(text((longPress ? "Long press: " : "Short press: ") + actionName(
                 ButtonActions.get(this, button, longPress)), 16, mUi.text, true),
                 spaced(longPress ? 18 : 12));
+        final java.util.List<String> ids = new java.util.ArrayList<>(
+                java.util.Arrays.asList(ButtonActions.IDS));
+        for (Macros.Macro m : Macros.all(this)) ids.add(ButtonActions.MACRO_PREFIX + m.id);
         LinearLayout actions = null;
-        for (int i = 0; i < ButtonActions.IDS.length; i++) {
+        for (int i = 0; i < ids.size(); i++) {
             if (i % 2 == 0) {
                 actions = new LinearLayout(this);
                 final LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(
@@ -348,8 +317,8 @@ public class ControllerMapActivity extends Activity {
                 al.topMargin = mUi.dp(10);
                 box.addView(actions, al);
             }
-            final String id = ButtonActions.IDS[i];
-            final TextView pill = mUi.pill(ButtonActions.NAMES[i], Ui.sAccent,
+            final String id = ids.get(i);
+            final TextView pill = mUi.pill(ButtonActions.nameOf(this, id), Ui.sAccent,
                     id.equals(ButtonActions.get(this, button, longPress)), v -> {
                         ButtonActions.set(this, button, longPress, id);
                         detail(region);
@@ -358,6 +327,10 @@ public class ControllerMapActivity extends Activity {
                     android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
             pp.rightMargin = mUi.dp(8);
             actions.addView(pill, pp);
+        }
+        if (ids.size() == ButtonActions.IDS.length) {
+            box.addView(text("Macros you create in Controller > Macros appear here too.", 13,
+                    mUi.textDim, false), spaced(8));
         }
     }
 
@@ -369,11 +342,8 @@ public class ControllerMapActivity extends Activity {
         return params;
     }
 
-    private static String actionName(String id) {
-        for (int i = 0; i < ButtonActions.IDS.length; i++) {
-            if (ButtonActions.IDS[i].equals(id)) return ButtonActions.NAMES[i];
-        }
-        return id;
+    private String actionName(String id) {
+        return ButtonActions.nameOf(this, id);
     }
 
     private View resetButton() {
@@ -393,10 +363,7 @@ public class ControllerMapActivity extends Activity {
         return reset;
     }
 
-    private static String targetName(int code) {
-        for (int i = 0; i < ControllerProfiles.TARGET_CODES.length; i++) {
-            if (ControllerProfiles.TARGET_CODES[i] == code) return ControllerProfiles.TARGET_NAMES[i];
-        }
-        return "key " + code;
+    private String targetName(int code) {
+        return ControllerProfiles.targetName(this, code);
     }
 }

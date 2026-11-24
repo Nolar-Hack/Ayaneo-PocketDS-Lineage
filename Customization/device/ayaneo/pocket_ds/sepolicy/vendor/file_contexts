@@ -15,3 +15,5 @@
 
 # Fan rail power-cycle at boot (init/init.pocketds.fan.sh)
 /vendor/bin/init\.pocketds\.fan\.sh          u:object_r:vendor_qti_init_shell_exec:s0
+# ro.boot.vbmeta.digest computed from the vbmeta partitions (init/init.pocketds.vbmeta.sh)
+/vendor/bin/init\.pocketds\.vbmeta\.sh       u:object_r:vendor_qti_init_shell_exec:s0

@@ -4,6 +4,7 @@
 #  - KernelSU Next manager: root itself is in init_boot, the app cannot be a
 #    preinstalled system app (compressed native libraries), install it as a user app.
 #  - Root for PocketDS Extra (KernelSU profile, retried at each boot until stored).
+#  - SUSFS (root hiding) loaded at every boot, set once (also on a console updated to this version).
 #  - PocketDS Extra started (keep-alive service) and made the home screen (HOME role); no
 #    Ayaneo app is shipped. Trebuchet must stay enabled: it is the recents / gestures
 #    provider (config_recentsComponentName) and its TouchInteractionService crashes when
@@ -13,15 +14,19 @@
 # Root for PocketDS Extra (KernelSU Next app profile: uid 1000, su allowed). ksud is the
 # libksud.so of the manager app: /data/adb/ksud only exists once somebody opened the manager.
 # Retried at every boot until the profile is stored.
-ksu_profile() {
-    PROFILE=/system_ext/etc/pocketds/pocketds-parts-profile.json
-    PKG=org.lineageos.pocketds.parts
+find_ksud() {
     KSUD=/data/adb/ksud
     if [ ! -x "$KSUD" ]; then
         APPDIR=$(pm path com.rifsxd.ksunext 2>/dev/null | sed 's/^package://; s|/base.apk$||')
         KSUD="$APPDIR/lib/arm64/libksud.so"
     fi
-    [ -x "$KSUD" ] || return
+    [ -x "$KSUD" ]
+}
+
+ksu_profile() {
+    PROFILE=/system_ext/etc/pocketds/pocketds-parts-profile.json
+    PKG=org.lineageos.pocketds.parts
+    find_ksud || return
     # What is stored is checked, not only a flag: after an update or a reinstall the profile may be
     # missing or su not allowed, and the app then has no root (fan, touch, per-app volume).
     if "$KSUD" profile get "$PKG" 2>/dev/null | grep -q '"allow_su": true'; then
@@ -34,6 +39,20 @@ ksu_profile() {
     fi
 }
 
+# SUSFS: KernelSU Next carries it as a module for the stock kernel (SUSFS guard LKM, KMI
+# android13-5.15; the same as Settings > Load SUSFS LKM in the manager). Auto-load is turned on
+# once and the module loaded at once; done only once (flag persist.sys.pocketds.susfs), so a user
+# who turns it off in the manager keeps it off. Retried at the next boot when ksud is not there.
+ksu_susfs() {
+    [ "$(getprop persist.sys.pocketds.susfs)" = "1" ] && return
+    find_ksud || return
+    if "$KSUD" susfs autoload enable --kmi android13-5.15; then
+        "$KSUD" susfs support 2>/dev/null | grep -q Supported \
+            || "$KSUD" susfs load --kmi android13-5.15
+        setprop persist.sys.pocketds.susfs 1
+    fi
+}
+
 # PocketDS Extra runs the performance overlay (central button), the screen-off animation and the
 # other controllers from its Application. On a fresh install nobody has launched it and Android
 # does not send it BOOT_COMPLETED: start its keep-alive service, which also lifts the "stopped" state.
@@ -41,13 +60,14 @@ start_parts() {
     am start-foreground-service --user 0 -n org.lineageos.pocketds.parts/.KeepAliveService >/dev/null 2>&1
 }
 
-[ "$(getprop persist.sys.pocketds.firstboot)" = "1" ] && { ksu_profile; start_parts; exit 0; }
+[ "$(getprop persist.sys.pocketds.firstboot)" = "1" ] && { ksu_profile; ksu_susfs; start_parts; exit 0; }
 
 APK=/system_ext/etc/pocketds/KernelSUNext.apk
 if [ -f "$APK" ] && ! pm path com.rifsxd.ksunext >/dev/null 2>&1; then
     pm install -r "$APK"
 fi
 ksu_profile
+ksu_susfs
 start_parts
 
 # PocketDS Extra provides the homes (main screen wallpaper, bottom screen list of apps), the

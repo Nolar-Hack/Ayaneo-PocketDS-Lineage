@@ -53,6 +53,10 @@ final class Updates {
     private static final String KEY_CHECKED = "checked";
     private static final String KEY_READY_CODE = "ready_code";
     private static final String KEY_NOTIFIED = "notified_code";
+    /** "Remind me later": no notification and no install by itself until then (ms). */
+    private static final String KEY_SNOOZE_UNTIL = "snooze_until";
+    /** "Skip this version": the version code of the release, until a newer one comes out. */
+    private static final String KEY_SKIPPED = "skipped_code";
 
     static final String CHANNEL = "pocketds_updates";
     static final int NOTIFICATION_ID = 40;
@@ -251,8 +255,46 @@ final class Updates {
         return available(context);
     }
 
+    /** Until when the reminders are paused (ms since 1970), 0 when they are not. */
+    static long snoozedUntil(Context context) {
+        final long until = prefs(context).getLong(KEY_SNOOZE_UNTIL, 0);
+        return until > System.currentTimeMillis() ? until : 0;
+    }
+
+    /** The user chose to skip this release (a newer one is announced again). */
+    static boolean skipped(Context context, Info info) {
+        return prefs(context).getInt(KEY_SKIPPED, 0) == info.code;
+    }
+
+    /** Neither a notification nor an installation by itself: paused, or this release skipped. */
+    static boolean quiet(Context context, Info info) {
+        return snoozedUntil(context) > 0 || skipped(context, info);
+    }
+
+    /** "Remind me later": the notification of the release comes back once the time has passed. */
+    static void snooze(Context context, long millis) {
+        prefs(context).edit().putLong(KEY_SNOOZE_UNTIL, System.currentTimeMillis() + millis)
+                .remove(KEY_SKIPPED).remove(KEY_NOTIFIED).apply();
+    }
+
+    static void skip(Context context, Info info) {
+        prefs(context).edit().putInt(KEY_SKIPPED, info.code).remove(KEY_SNOOZE_UNTIL).apply();
+    }
+
+    /** Back to the normal reminders; the release is announced again at the next check. */
+    static void remindAgain(Context context) {
+        prefs(context).edit().remove(KEY_SNOOZE_UNTIL).remove(KEY_SKIPPED).remove(KEY_NOTIFIED)
+                .apply();
+    }
+
+    /** The state of the reminders in one text, to know when the page must be drawn again. */
+    static String reminderState(Context context) {
+        return snoozedUntil(context) + ":" + prefs(context).getInt(KEY_SKIPPED, 0);
+    }
+
     /** Tells the user once per release that an update is out. */
     static void notifyAvailable(Context context, Info info) {
+        if (quiet(context, info)) return;
         final SharedPreferences p = prefs(context);
         if (p.getInt(KEY_NOTIFIED, 0) == info.code) return;
         p.edit().putInt(KEY_NOTIFIED, info.code).apply();

@@ -40,11 +40,27 @@ final class BackupManager {
 
     private static boolean skip(String key) {
         return key.startsWith("rule_saved_") || key.equals("obtainium_pack_copied")
-                || key.equals("obtainium_pack_loaded");
+                || key.equals("obtainium_pack_loaded") || key.equals(CycleCounter.KEY_LAST)
+                || VersionCount.isPrivateKey(key);
     }
 
     /** Writes the backup in Downloads/PocketDS and returns its name. */
     static String export(Context context) throws IOException {
+        return write(context, "pocketds-backup-"
+                + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date()) + ".json",
+                false);
+    }
+
+    /**
+     * The backup made before a system update is installed: always the same file, replaced each
+     * time, so that a weekly update does not fill Downloads. Restore it like any other backup.
+     */
+    static String exportBeforeUpdate(Context context) throws IOException {
+        return write(context, "pocketds-backup-before-update.json", true);
+    }
+
+    private static String write(Context context, String name, boolean replace)
+            throws IOException {
         try {
             final JSONObject root = new JSONObject();
             root.put("app", "PocketDS Extra");
@@ -73,10 +89,17 @@ final class BackupManager {
             final String profiles = readProfiles(context);
             if (profiles != null) root.put("performance_profiles", profiles);
 
-            final String name = "pocketds-backup-"
-                    + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date())
-                    + ".json";
             final ContentResolver resolver = context.getContentResolver();
+            if (replace) {
+                try {
+                    resolver.delete(MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                            MediaStore.Downloads.DISPLAY_NAME + "=? AND "
+                                    + MediaStore.Downloads.RELATIVE_PATH + " LIKE ?",
+                            new String[] {name, "Download/PocketDS%"});
+                } catch (RuntimeException e) {
+                    // the old one stays and the new one gets another name: still a backup
+                }
+            }
             final ContentValues values = new ContentValues();
             values.put(MediaStore.Downloads.DISPLAY_NAME, name);
             values.put(MediaStore.Downloads.MIME_TYPE, "application/json");

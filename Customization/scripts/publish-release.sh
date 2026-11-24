@@ -5,7 +5,10 @@ set -euo pipefail
 #   tag v<version>, OTA/Full/*<version>*full.zip, OTA/Incremental/*<version>*incremental.zip,
 #   OTA/update.json and the notes. Asks before publishing; --yes skips the question.
 #
-#   publish-release.sh [--yes] [--repo owner/name] [--prerelease]
+#   publish-release.sh [--yes] [--repo owner/name] [--prerelease] [--allow-insecure]
+#
+# A build made with --bringup (adb without authorization: anyone with a USB cable gets a shell) is
+# refused; --allow-insecure publishes it anyway.
 #
 # Needs the gh command logged in with the account that owns the repository (gh auth status).
 # The complete package holds the proprietary files of the console: publish it only where you mean to.
@@ -16,12 +19,14 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/config.sh"
 OTA_DIR="$REPO_DIR/../OTA"
 ASK=true
+ALLOW_INSECURE=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --yes|-y) ASK=false ;;
         --repo) RELEASE_REPO="$2"; shift ;;
         --prerelease) RELEASE_PRERELEASE=true ;;
+        --allow-insecure) ALLOW_INSECURE=true ;;
         -h|--help) sed -n '3,12p' "$0"; exit 0 ;;
         *) echo "Unknown option $1" >&2; exit 1 ;;
     esac
@@ -48,6 +53,20 @@ grep -q "/$RELEASE_REPO/releases/download/$TAG/" "$JSON" \
     || die "update.json points to another repository than $RELEASE_REPO: run make-ota.sh again after changing RELEASE_REPO"
 gh repo view "$RELEASE_REPO" >/dev/null 2>&1 || die "Repository $RELEASE_REPO not found for this gh account"
 if gh release view "$TAG" -R "$RELEASE_REPO" >/dev/null 2>&1; then die "Release $TAG already exists in $RELEASE_REPO"; fi
+
+# A --bringup build accepts any computer on adb without asking: not for the public. The target files
+# of the last build (OTA/Work/Current) tell, when they are the build of the complete package.
+CURRENT_TF="$OTA_DIR/Work/Current/target_files"
+BUILD_ID="$(unzip -p "$FULL" META-INF/com/android/metadata 2>/dev/null | sed -n 's/^post-build-incremental=//p')"
+if [[ -n "$BUILD_ID" && -f "$CURRENT_TF/SYSTEM/build.prop" ]] \
+        && grep -q "^ro.build.version.incremental=$BUILD_ID$" "$CURRENT_TF/SYSTEM/build.prop"; then
+    if grep -q '^ro.adb.secure=0' "$CURRENT_TF/SYSTEM_EXT/etc/build.prop" 2>/dev/null; then
+        $ALLOW_INSECURE || die "This build was made with --bringup (adb without authorization). Build again without it for a release, or pass --allow-insecure"
+        echo "[WARN] publishing a --bringup build (adb without authorization)"
+    fi
+else
+    echo "[WARN] cannot tell whether this build was made with --bringup (OTA/Work/Current is another build)"
+fi
 
 # The notes: the file of pocketds.conf if it is there, else a short text made from the packages.
 NOTES="$REPO_DIR/../${RELEASE_NOTES:-OTA/Patch Notes/release-notes-%VERSION%.md}"

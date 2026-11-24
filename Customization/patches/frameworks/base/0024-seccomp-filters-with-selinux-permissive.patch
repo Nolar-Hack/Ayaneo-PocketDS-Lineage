@@ -1,0 +1,21 @@
+Subject: [PATCH] Zygote: seccomp filters of the apps installed while SELinux is permissive
+
+Zygote skipped the seccomp filters (app, app zygote, system, setuid/setgid range) when SELinux was
+not enforcing ("seccomp disabled by setenforce 0"). SELinux stays permissive on the Pocket DS, so
+no app had a seccomp filter: a security layer less, and root checkers report "Seccomp: disabled".
+gIsSecurityEnforced only decides that, it is now always true: the filters are installed as on
+any device. KernelSU lifts them itself for the processes it grants root.
+
+--- a/core/jni/com_android_internal_os_Zygote.cpp
++++ b/core/jni/com_android_internal_os_Zygote.cpp
+@@ -2895,7 +2895,9 @@
+ 
+   // security_getenforce is not allowed on app process. Initialize and cache
+   // the value before zygote forks.
+-  gIsSecurityEnforced = security_getenforce();
++  // PocketDS: SELinux stays permissive on this console, and the value only decides whether the
++  // seccomp filters of the apps are installed: they are installed in any case, as on any device.
++  gIsSecurityEnforced = true;
+ 
+   selinux_android_seapp_context_init();
+ 

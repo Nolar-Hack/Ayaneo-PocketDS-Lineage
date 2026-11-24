@@ -78,7 +78,7 @@ class SuspendActionsController {
         public void onAlarm() {
             if (mContext.getSystemService(PowerManager.class).isInteractive()) return;
             if (mPrefs.getBoolean(PartsPrefs.SUSPEND_ONLY_ON_BATTERY, true)
-                    && mContext.getSystemService(BatteryManager.class).isCharging()) {
+                    && PartsPrefs.pluggedIn(mContext)) {
                 return;
             }
             final SharedPreferences.Editor edit = mPrefs.edit();

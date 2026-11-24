@@ -122,8 +122,11 @@ class PowerOffController {
             // Lid closed: power off even when plugged, unless data is going through the USB port.
             // A closed lid with nothing happening on the port only drains the battery.
             new Thread(() -> {
-                if (usbTransferring()) {
-                    Log.i(TAG, "Power off (lid closed) postponed: USB transfer in progress");
+                final boolean holdPlugged = !mPrefs.getBoolean(PartsPrefs.POWEROFF_LID_PLUGGED, true)
+                        && PartsPrefs.pluggedIn(mContext);
+                if (holdPlugged || usbTransferring()) {
+                    Log.i(TAG, "Power off (lid closed) postponed: "
+                            + (holdPlugged ? "plugged in" : "USB transfer in progress"));
                     mHandler.post(() -> mAlarms.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP,
                             SystemClock.elapsedRealtime() + RETRY_MS, "pocketds-poweroff-lid",
                             mLidAlarm, mHandler));
@@ -240,11 +243,12 @@ class PowerOffController {
     private void powerOff(String why, boolean evenIfCharging) {
         if (!evenIfCharging
                 && mPrefs.getBoolean(PartsPrefs.POWEROFF_ONLY_ON_BATTERY, true)
-                && mContext.getSystemService(BatteryManager.class).isCharging()) {
-            Log.i(TAG, "Power off (" + why + ") skipped: charging");
+                && PartsPrefs.pluggedIn(mContext)) {
+            Log.i(TAG, "Power off (" + why + ") skipped: plugged in");
             return;
         }
         Log.i(TAG, "Powering off: " + why);
+        ShutdownLog.record(mContext, "PocketDS Extra powered the console off: " + why);
         mContext.getSystemService(PowerManager.class).shutdown(false, "pocketds", false);
     }
 }

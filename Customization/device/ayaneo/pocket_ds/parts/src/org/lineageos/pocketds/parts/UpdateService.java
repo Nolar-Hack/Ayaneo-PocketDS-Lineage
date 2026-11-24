@@ -87,6 +87,13 @@ public class UpdateService extends Service {
     private void run() {
         final Updates.Info info = Updates.available(this);
         if (info == null) return;
+        // The data is kept by an update, but a settings backup next to it costs nothing the day
+        // the console has to be wiped.
+        try {
+            BackupManager.exportBeforeUpdate(this);
+        } catch (java.io.IOException | RuntimeException e) {
+            Log.w(TAG, "backup before the update failed", e);
+        }
         // The package that matches the installed build first; the complete one if it fails.
         final List<Updates.Pack> tries = new ArrayList<>();
         final Updates.Pack first = info.pick();

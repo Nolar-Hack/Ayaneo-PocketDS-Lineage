@@ -294,6 +294,19 @@ service vendor.pocketds_fan /vendor/bin/init.pocketds.fan.sh
 on property:sys.boot_completed=1
     start vendor.pocketds_fan
 
+# ro.boot.vbmeta.digest, which the unlocked bootloader leaves out (see init.pocketds.vbmeta.sh).
+# Early, before the apps start.
+service vendor.pocketds_vbmeta /vendor/bin/init.pocketds.vbmeta.sh
+    class core
+    user root
+    group root
+    disabled
+    oneshot
+    seclabel u:r:vendor_qti_init_shell:s0
+
+on post-fs-data
+    start vendor.pocketds_vbmeta
+
 # PocketDS Parts (uid system) tunes the main screen touch controller (FT5452).
 on boot
     chown system system /sys/devices/platform/soc/ac0000.qcom,qupv3_1_geni_se/a90000.i2c/i2c-3/3-0038/fts_rw_reg

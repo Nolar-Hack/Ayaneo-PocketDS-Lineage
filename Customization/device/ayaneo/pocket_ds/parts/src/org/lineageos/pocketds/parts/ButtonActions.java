@@ -28,7 +28,26 @@ final class ButtonActions {
         "Next performance profile", "FPS bar", "Keyboard (show / hide, stays open)",
         "Controller to the other screen", "Nothing"};
 
+    /** "macro:3" runs the macro 3 (see {@link Macros}). */
+    static final String MACRO_PREFIX = "macro:";
+
     private ButtonActions() {}
+
+    /** The name of an action, a macro included. */
+    static String nameOf(Context context, String id) {
+        if (id.startsWith(MACRO_PREFIX)) {
+            try {
+                return "Macro: " + Macros.nameOf(context,
+                        Integer.parseInt(id.substring(MACRO_PREFIX.length())));
+            } catch (NumberFormatException e) {
+                return id;
+            }
+        }
+        for (int i = 0; i < IDS.length; i++) {
+            if (IDS[i].equals(id)) return NAMES[i];
+        }
+        return id;
+    }
 
     /** The button of a drawing region ("AYA / M", "Home"...), or null. */
     static String buttonOf(String regionName) {
@@ -63,7 +82,16 @@ final class ButtonActions {
 
     static void run(Context context, String button, boolean longPress) {
         if (button == null) return;
-        switch (get(context, button, longPress)) {
+        final String chosen = get(context, button, longPress);
+        if (chosen.startsWith(MACRO_PREFIX)) {
+            try {
+                Macros.run(context, Integer.parseInt(chosen.substring(MACRO_PREFIX.length())));
+            } catch (NumberFormatException e) {
+                // a damaged setting does nothing
+            }
+            return;
+        }
+        switch (chosen) {
             case "swap":
                 // only while both screens are in use (screen mode 1)
                 if (Screens.MODE_BOTH.equals(Screens.screenMode(context))) {

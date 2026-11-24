@@ -96,7 +96,7 @@ public class PartsSettingsActivity extends Activity {
                 open(SectionActivity.POWER_OFF)));
         tiles.add(ui.tile("⬆️", Ui.TEAL, "System update", updateStatus(),
                 open(SectionActivity.UPDATES)));
-        tiles.add(ui.tile("🧰", Ui.GREY, "Tools & logs", "Collect the logs",
+        tiles.add(ui.tile("🧰", Ui.GREY, "Tools & logs", "Logs, backups, overlay",
                 open(SectionActivity.TOOLS)));
         ui.grid(page, tiles);
         aboutCard(ui, page);

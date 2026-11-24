@@ -1,0 +1,21 @@
+# Counter of the PocketDS versions in use. See README.md of this folder.
+name = "pocketds-stats"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# No request logs: nothing about the consoles is kept beyond their random identifier and version.
+# Daily at 07:00 UTC: edit the pinned summary in Discord (and on Mondays post a new one).
+[triggers]
+crons = ["0 7 * * *"]
+
+# Only the versions of these releases are accepted.
+[vars]
+RELEASE_REPO = "Nolar-Hack/Ayaneo-PocketDS-Lineage-Releases"
+
+[observability]
+enabled = false
+
+[[kv_namespaces]]
+binding = "CONSOLES"
+# id of the namespace made by: npx wrangler kv namespace create CONSOLES
+id = "REPLACE_WITH_THE_KV_NAMESPACE_ID"
